@@ -104,8 +104,11 @@ export class ResultAssembler {
       if (isFinal && lastIsInterim) this.results.pop();
       return null;
     }
-    const entry = { 0: { transcript: text }, isFinal };
-    if (lastIsInterim) this.results[this.results.length - 1] = entry;
+    // Like the browser recognizer, every result after the first starts with a space: the call screen
+    // joins results as they are, and two finals from one paused sentence came out "YesI drove it"
+    const index = lastIsInterim ? this.results.length - 1 : this.results.length;
+    const entry = { 0: { transcript: index > 0 ? ` ${text}` : text }, isFinal };
+    if (lastIsInterim) this.results[index] = entry;
     else this.results.push(entry);
     return { resultIndex: this.results.length - 1, results: [...this.results] };
   }
