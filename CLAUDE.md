@@ -28,6 +28,13 @@ Next.js app (`tavus-avatar/`) for an AWS Summit Sydney booth demo. Real-time con
 - `TAVUS_PERSONA_ID` - Default persona ID. **For Pipecat integrations, always use `pipecat-stream`** — this is a special Tavus persona (pipeline_mode: echo) that disables Tavus's own greeting and LLM, letting Pipecat handle all AI orchestration. It will NOT appear in `GET /v2/personas` list but is valid and available on all accounts.
 - `EVENT_CONFIG` - Directory name under `prompts/` (default `aws-summit-mumbai-2026`). Selects the system prompt (`prompts/<event>/system-instruction.md`) and greeting (`prompts/<event>/greeting.md`, falls back to the AWS Summit Sydney greeting if absent). Forwarded into the client bundle via `next.config.ts`'s `env` field, so `src/lib/content-items.ts` and `src/lib/persona-tools.ts` can also branch on it (see `src/lib/event.ts`).
 - `OPENAI_API_KEY` - only used by `scripts/create-finance-persona.ps1 -UseOpenAI` to point the finance persona's LLM layer at OpenAI directly instead of Tavus's built-in model. Not read by the running app itself.
+- `DEEPGRAM_API_KEY` - Max's speech recognition. **Deepgram is the default engine** (`chooseSttEngine` in
+  `src/lib/deepgram-stt.ts`): it streams the echo-cancelled mic using a short-lived token from
+  `/api/stt/token`. If the key is missing, the token fails, or the connection is refused, the call falls back
+  to the browser's recognizer.
+- `NEXT_PUBLIC_STT_ENGINE` - optional; `webspeech` turns Deepgram off for every call (`?stt=webspeech` /
+  `?stt=deepgram` in the URL overrides it per call). It is built into the client bundle: change it, then
+  rebuild / redeploy.
 - `DEMO_API_TOKEN` - gates every `/api/*` route (except `/api/auth`) behind a shared login token, checked in `src/proxy.ts`. Unset → auth is skipped in dev, but **fails closed with 503** if `NODE_ENV=production` and it's still unset — a missing token in production means the deployment is misconfigured, not that auth should be silently disabled. Required for any deployment reachable outside your own machine.
 
 ## Digital Finance Manager event (`EVENT_CONFIG=digital-finance-manager`)

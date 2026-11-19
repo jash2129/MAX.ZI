@@ -2,12 +2,18 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { chooseSttEngine, ResultAssembler, DeepgramRecognizer, DEEPGRAM_LISTEN_URL, type RecognizerLike } from "./deepgram-stt";
 
 describe("which speech recognition a call uses", () => {
-  it("the URL wins, then the configured default, else the browser's", () => {
-    expect(chooseSttEngine("?stt=deepgram", undefined)).toBe("deepgram");
-    expect(chooseSttEngine("?stt=webspeech", "deepgram")).toBe("webspeech");
+  it("Deepgram is the default when neither the URL nor NEXT_PUBLIC_STT_ENGINE picks one", () => {
+    expect(chooseSttEngine("", undefined)).toBe("deepgram");
+    expect(chooseSttEngine("", "")).toBe("deepgram");
+    expect(chooseSttEngine("?stt=other", undefined)).toBe("deepgram");
     expect(chooseSttEngine("", "deepgram")).toBe("deepgram");
-    expect(chooseSttEngine("?stt=other", undefined)).toBe("webspeech");
-    expect(chooseSttEngine("", undefined)).toBe("webspeech");
+  });
+
+  it("?stt=webspeech forces the browser recognizer, and NEXT_PUBLIC_STT_ENGINE=webspeech turns Deepgram off", () => {
+    expect(chooseSttEngine("?stt=webspeech", undefined)).toBe("webspeech");
+    expect(chooseSttEngine("?stt=webspeech", "deepgram")).toBe("webspeech");
+    expect(chooseSttEngine("", "webspeech")).toBe("webspeech");
+    expect(chooseSttEngine("?stt=deepgram", "webspeech")).toBe("deepgram");
   });
 
   it("asks Deepgram for interim results, voice events and a 300 ms endpoint", () => {

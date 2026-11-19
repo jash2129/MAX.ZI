@@ -798,8 +798,9 @@ export function LiveAvatarDemo() {
       return r;
     };
 
-    // Deepgram (server STT on the echo-cancelled mic) or the browser's recognizer: ?stt=deepgram|webspeech
-    // in the URL, else NEXT_PUBLIC_STT_ENGINE. Deepgram hands over to the browser one if it is unavailable.
+    // Deepgram (server STT on the echo-cancelled mic, the default) or the browser's recognizer:
+    // ?stt=deepgram|webspeech in the URL, else NEXT_PUBLIC_STT_ENGINE (webspeech turns Deepgram off).
+    // Deepgram hands over to the browser one if it is unavailable.
     const sttEngine = chooseSttEngine(window.location.search, process.env.NEXT_PUBLIC_STT_ENGINE);
     const recognizer: RecognizerLike | null =
       sttEngine === "deepgram"

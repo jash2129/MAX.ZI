@@ -30,11 +30,20 @@ export interface RecognizerEvent {
   results: ArrayLike<{ 0: { transcript: string }; isFinal: boolean }>;
 }
 
-/** Which engine a call uses: ?stt=deepgram|webspeech in the URL, else NEXT_PUBLIC_STT_ENGINE, else the browser's. */
+/**
+ * Which engine a call uses: ?stt=deepgram|webspeech in the URL, else NEXT_PUBLIC_STT_ENGINE, else
+ * Deepgram (the default: it hears the echo-cancelled mic, so Max's own voice is not transcribed).
+ * NEXT_PUBLIC_STT_ENGINE=webspeech turns it off for every call.
+ */
 export function chooseSttEngine(search: string, configured: string | undefined): SttEngine {
   const fromUrl = new URLSearchParams(search).get("stt");
   if (fromUrl === "deepgram" || fromUrl === "webspeech") return fromUrl;
-  return configured === "deepgram" ? "deepgram" : "webspeech";
+  return configured?.trim().toLowerCase() === "webspeech" ? "webspeech" : "deepgram";
+}
+
+/** The engine a call uses when nothing in its URL picks one (for /api/health) */
+export function defaultSttEngine(configured: string | undefined): SttEngine {
+  return chooseSttEngine("", configured);
 }
 
 export const DEEPGRAM_LISTEN_URL =
