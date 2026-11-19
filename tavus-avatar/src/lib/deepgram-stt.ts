@@ -97,7 +97,14 @@ type Deps = {
   /** The browser recognizer to hand over to if Deepgram is unavailable */
   fallback: () => RecognizerLike | null;
   log: (message: string, detail?: unknown) => void;
+  /** Deepgram could not be used and the browser recognizer took over (or none was available) */
+  onFallback?: (reason: string) => void;
 };
+
+/** The one JSON line logged when a call falls back from Deepgram: never a silent fallback */
+export function sttFallbackLogLine(reason: string, fallbackAvailable: boolean): string {
+  return JSON.stringify({ event: "stt_fallback", from: "deepgram", to: fallbackAvailable ? "webspeech" : "none", reason });
+}
 
 export class DeepgramRecognizer implements RecognizerLike {
   onresult: RecognizerLike["onresult"] = null;
@@ -107,6 +114,8 @@ export class DeepgramRecognizer implements RecognizerLike {
 
   /** Which engine is actually running (changes to "webspeech" after a fallback) */
   engine: SttEngine = "deepgram";
+  /** Why Deepgram was not used, once it fell back (missing key, token failure, refused connection ...) */
+  fallbackReason: string | null = null;
 
   private ws: WebSocket | null = null;
   private recorder: MediaRecorder | null = null;
@@ -208,7 +217,10 @@ export class DeepgramRecognizer implements RecognizerLike {
     this.teardown(false);
     this.running = false;
     const fallback = this.deps.fallback();
+    this.fallbackReason = reason;
+    console.warn(sttFallbackLogLine(reason, Boolean(fallback)));
     this.deps.log(`speech recognition falling back to the browser: ${reason}`);
+    this.deps.onFallback?.(reason);
     if (!fallback) {
       this.onerror?.({ error: "service-not-allowed" });
       return;

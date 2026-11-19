@@ -28,6 +28,9 @@ export type ControllerTurnMetrics = {
 
 export type TurnTimingLog = {
   turnId: number;
+  /** The recognizer that heard this turn ("deepgram" or "webspeech"), and why Deepgram fell back */
+  sttEngine?: string;
+  sttFallbackReason?: string;
   userInput: string;
   avatarText: string;
   /** controller breakdown; total_latency_ms (end of customer speech -> avatar audio) is in `gaps` */
@@ -82,6 +85,8 @@ export type HeygenCallLog = {
   engine: "heygen-grok";
   /** Speech recognition the call used: "deepgram" or "webspeech" (the browser's) */
   sttEngine?: string;
+  /** Why the call fell back from Deepgram to the browser recognizer (missing key, token, connection) */
+  sttFallbackReason?: string;
   avatarId: string;
   avatarName: string;
   startTime: string;

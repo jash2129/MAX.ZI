@@ -3,6 +3,8 @@ import { storeStatus } from "@/lib/call-log-store";
 import { storeBackend, upstashEnvNames } from "@/lib/upstash";
 import { isAIFirstEnabled } from "@/lib/ai-understanding";
 import { isAISpeechEnabled } from "@/lib/ai-speech";
+import { defaultSttEngine } from "@/lib/deepgram-stt";
+import { mintDeepgramToken } from "@/lib/deepgram-token";
 
 // What this deployment can reach, for setup checks: open /api/health in a signed-in browser, or
 // /api/health?session=<call id> to check one call's log. Yes/no answers and variable NAMES only,
@@ -15,7 +17,10 @@ export async function GET(request: Request) {
     deployment: process.env.VERCEL_GIT_COMMIT_SHA?.slice(0, 7) ?? null,
     upstash: { ...(await storeStatus(sessionId)), ...storeBackend(), envNames: upstashEnvNames() },
     deepgramKey: set("DEEPGRAM_API_KEY"),
-    sttDefault: process.env.NEXT_PUBLIC_STT_ENGINE || "webspeech",
+    // The engine a call uses with no ?stt= in its URL, and whether this deployment can mint a
+    // Deepgram token right now (false: every call falls back to the browser recognizer)
+    sttDefault: defaultSttEngine(process.env.NEXT_PUBLIC_STT_ENGINE),
+    sttToken: await mintDeepgramToken().then((r) => (r.ok ? { mintable: true } : { mintable: false, reason: r.error })),
     callLogWebhook: set("CALL_LOG_WEBHOOK_URL"),
     callLogSecret: set("CALL_LOG_SECRET"),
     heygenKey: set("HEYGEN_API_KEY"),

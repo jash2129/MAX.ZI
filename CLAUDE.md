@@ -31,7 +31,10 @@ Next.js app (`tavus-avatar/`) for an AWS Summit Sydney booth demo. Real-time con
 - `DEEPGRAM_API_KEY` - Max's speech recognition. **Deepgram is the default engine** (`chooseSttEngine` in
   `src/lib/deepgram-stt.ts`): it streams the echo-cancelled mic using a short-lived token from
   `/api/stt/token`. If the key is missing, the token fails, or the connection is refused, the call falls back
-  to the browser's recognizer.
+  to the browser's recognizer *loudly*: one JSON `stt_fallback` line in the browser console (and
+  `stt_token_failed` on the server), `sttFallbackReason` in the call log and in the Inspector turn table's
+  STT column, and a "Speech recognition: browser fallback" banner on the call screen. `/api/health`
+  reports `deepgramKey`, `sttDefault` and `sttToken.mintable` (it mints a real token to check).
 - `NEXT_PUBLIC_STT_ENGINE` - optional; `webspeech` turns Deepgram off for every call (`?stt=webspeech` /
   `?stt=deepgram` in the URL overrides it per call). It is built into the client bundle: change it, then
   rebuild / redeploy.

@@ -251,6 +251,9 @@ export function LiveAvatarDemo() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const speechRecognitionRef = useRef<any>(null);
+  // Deepgram was not available and the browser recognizer took over: shown on screen and logged
+  const [sttFallbackReason, setSttFallbackReason] = useState<string | null>(null);
+  const sttFallbackReasonRef = useRef<string | null>(null);
 
   // Sync state into refs for async events
   const isConnectedRef = useRef(isConnected);
@@ -340,6 +343,9 @@ export function LiveAvatarDemo() {
       };
       const completedTurnLog = {
         turnId: timing.turnId,
+        // Which recognizer heard this turn, and why Deepgram was not used if it fell back
+        sttEngine: speechRecognitionRef.current?.engine ?? "webspeech",
+        ...(sttFallbackReasonRef.current ? { sttFallbackReason: sttFallbackReasonRef.current } : {}),
         userInput: timing.userInput,
         avatarText: timing.avatarText,
         controller: timing.controller,
@@ -808,6 +814,11 @@ export function LiveAvatarDemo() {
             getStream: () => localStreamRef.current,
             fallback: makeBrowserRecognizer,
             log: (message) => logTurnEvent({ ts: new Date().toISOString(), event: "stt", reason: message }),
+            onFallback: (reason) => {
+              sttFallbackReasonRef.current = reason;
+              setSttFallbackReason(reason);
+              logTurnEvent({ ts: new Date().toISOString(), event: "stt_fallback", reason });
+            },
           })
         : makeBrowserRecognizer();
     if (!recognizer) return;
@@ -1510,6 +1521,7 @@ export function LiveAvatarDemo() {
         engine: "heygen-grok",
         // Which speech recognition this call actually used (Deepgram falls back to the browser's)
         sttEngine: speechRecognitionRef.current?.engine ?? "webspeech",
+        ...(sttFallbackReasonRef.current ? { sttFallbackReason: sttFallbackReasonRef.current } : {}),
         avatarId: "heygen-liveavatar",
         avatarName,
         startTime: start,
@@ -1808,6 +1820,16 @@ export function LiveAvatarDemo() {
           >
             ✕
           </button>
+        </div>
+      )}
+
+      {/* Deepgram fell back to the browser recognizer: never silent */}
+      {isConnected && sttFallbackReason && (
+        <div
+          title={sttFallbackReason}
+          className="absolute top-40 left-1/2 -translate-x-1/2 z-50 w-max max-w-[92vw] rounded-full border border-rose-400/40 bg-rose-500/15 px-4 py-1.5 text-xs text-rose-100 shadow-2xl"
+        >
+          Speech recognition: browser fallback
         </div>
       )}
 

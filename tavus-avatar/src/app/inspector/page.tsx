@@ -606,6 +606,7 @@ export default function CallInspectorPage() {
                         <th className="p-3 text-right">Classifier</th>
                         <th className="p-3 text-right">Controller</th>
                         <th className="p-3">LLM</th>
+                        <th className="p-3" title="Speech recognition that heard this turn; hover a fallback for the reason">STT</th>
                         <th className="p-3 text-right" title="Speech end to STT final, plus the end-of-speech wait before the turn is sent">STT + endpoint</th>
                         <th className="p-3 text-right" title="Server time inside /api/chat/grok">Route</th>
                         <th className="p-3 text-right" title="Request round trip minus route time">Network</th>
@@ -647,6 +648,17 @@ export default function CallInspectorPage() {
                                 <span title={`Approved line kept: ${c.speechReason ?? ""}`} className="ml-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-slate-500/20 text-slate-400 border border-slate-500/30 cursor-help">Script</span>
                               ) : null}
                             </td>
+                            <td className="p-3">
+                              {t.sttFallbackReason ? (
+                                <span title={`Fell back from Deepgram: ${t.sttFallbackReason}`} className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-rose-500/20 text-rose-300 border border-rose-500/30 cursor-help">Browser (fallback)</span>
+                              ) : t.sttEngine === "deepgram" ? (
+                                <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-sky-500/20 text-sky-300 border border-sky-500/30">Deepgram</span>
+                              ) : t.sttEngine ? (
+                                <span className="text-slate-400">Browser</span>
+                              ) : (
+                                <span className="text-slate-500">-</span>
+                              )}
+                            </td>
                             <td className="p-3 text-right text-slate-300">{stageCell(t, ["stt", "endpointing"])}</td>
                             <td className="p-3 text-right text-slate-300">{stageCell(t, ["route"])}</td>
                             <td className="p-3 text-right text-slate-300">{stageCell(t, ["network"])}</td>
@@ -666,6 +678,7 @@ export default function CallInspectorPage() {
                             Average over {turnTimings.filter((t) => t.stageMs).length} turns
                           </td>
                           <td className="p-3 text-right">{avgStage(turnTimings, (t) => t.controller?.controllerMs)}</td>
+                          <td className="p-3" />
                           <td className="p-3" />
                           <td className="p-3 text-right">{avgStage(turnTimings, (t) => sumStages(t, ["stt", "endpointing"]))}</td>
                           <td className="p-3 text-right">{avgStage(turnTimings, (t) => t.stageMs?.route)}</td>

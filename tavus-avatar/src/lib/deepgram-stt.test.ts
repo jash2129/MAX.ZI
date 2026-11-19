@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { chooseSttEngine, ResultAssembler, DeepgramRecognizer, DEEPGRAM_LISTEN_URL, type RecognizerLike } from "./deepgram-stt";
+import { chooseSttEngine, ResultAssembler, DeepgramRecognizer, DEEPGRAM_LISTEN_URL, sttFallbackLogLine, type RecognizerLike } from "./deepgram-stt";
 
 describe("which speech recognition a call uses", () => {
   it("Deepgram is the default when neither the URL nor NEXT_PUBLIC_STT_ENGINE picks one", () => {
@@ -170,5 +170,25 @@ describe("DeepgramRecognizer", () => {
     FakeSocket.last!.onclose?.({ code: 1008 });
     expect(browser.started).toBe(1);
     expect(rec.engine).toBe("webspeech");
+    expect(rec.fallbackReason).toMatch(/refused the connection \(code 1008\)/);
+  });
+
+  it("a missing key is never a silent fallback: the reason is recorded, reported and logged as one JSON line", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: false, status: 503, json: async () => ({ error: "DEEPGRAM_API_KEY is not set" }) }));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const reported: string[] = [];
+    const rec = new DeepgramRecognizer({ getStream: () => null, fallback: () => browserRecognizer(), log: () => {}, onFallback: (r) => reported.push(r) });
+    rec.start();
+    await flush();
+    expect(rec.fallbackReason).toBe("no Deepgram token (DEEPGRAM_API_KEY is not set)");
+    expect(reported).toEqual([rec.fallbackReason]);
+    const lines = warn.mock.calls.map((c) => String(c[0])).filter((l) => l.includes("stt_fallback"));
+    expect(lines).toHaveLength(1);
+    expect(JSON.parse(lines[0])).toEqual({ event: "stt_fallback", from: "deepgram", to: "webspeech", reason: rec.fallbackReason });
+    warn.mockRestore();
+  });
+
+  it("the fallback log line says when no browser recognizer was available either", () => {
+    expect(JSON.parse(sttFallbackLogLine("x", false)).to).toBe("none");
   });
 });
