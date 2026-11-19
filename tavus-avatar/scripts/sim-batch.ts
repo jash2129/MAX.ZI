@@ -15,6 +15,8 @@
  *     --parallel 4     calls at once (default 4)
  *     --ai             AI-first understanding (MAX_UNDERSTANDING=ai) for this batch
  *     --rules          rules only, even if .env.local turns AI-first on
+ *     --speech-ai      AI speech, Option C (MAX_SPEECH=ai): Max's replies in Beats 2-21 worded by the AI
+ *     --speech-script  approved lines word for word, even if .env.local turns AI speech on
  *
  * Needs XAI_API_KEY or OPENAI_API_KEY in .env.local (the AI customer; Max's classifier also uses it,
  * like production). Writes testing-skill/reports/sim-batch-<time>.md and .json.
@@ -58,7 +60,7 @@ interface SimCall {
   review?: { aiScore: number | ""; callSummary: string; problemsFound: string; customerSentiment: string };
   seconds: number;
   /** AI-first understanding, per turn: who decided, the AI's reason, and the classifier time */
-  understanding?: Array<{ by: "ai" | "rules" | "-"; reason?: string; ms: number }>;
+  understanding?: Array<{ by: "ai" | "rules" | "-"; reason?: string; ms: number; speech?: "ai" | "script"; speechReason?: string; speechMs?: number }>;
 }
 
 function loadEnvLocal() {
@@ -146,7 +148,14 @@ async function simulateCall(persona: Persona, n: number, noise: number, review: 
     }
     const d = await bc.processControllerTurn(id, said, DEFAULT_DEAL_CONFIG);
     turns.push({ customer: said, max: d.textToSpeak, beat: d.beatId });
-    understanding.push({ by: d.metrics?.understanding ?? "-", reason: d.metrics?.aiReason, ms: d.metrics?.classifierMs ?? 0 });
+    understanding.push({
+      by: d.metrics?.understanding ?? "-",
+      reason: d.metrics?.aiReason,
+      ms: d.metrics?.classifierMs ?? 0,
+      speech: d.metrics?.speech,
+      speechReason: d.metrics?.speechReason,
+      speechMs: d.metrics?.speechMs,
+    });
     history.push({ role: "user", content: d.textToSpeak });
     lastMax = d.textToSpeak;
     if (d.isScriptComplete) {
@@ -273,6 +282,7 @@ function report(calls: SimCall[], noise: number): string {
     `| Calls with a hard failure | ${calls.filter((c) => c.scorecard.checks.some((k) => k.severity === "hard" && !k.pass)).length} |`,
     `| Average AI score | ${scores.length ? (scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1) : "-"} / 10 |`,
     ...understandingRows(calls),
+    ...speechRows(calls),
     ``,
     `## Checks`,
     ``,
@@ -301,7 +311,9 @@ function report(calls: SimCall[], noise: number): string {
     lines.push("", "<details><summary>Conversation</summary>", "");
     c.turns.forEach((t, i) => {
       const u = c.understanding?.[i];
-      const tag = u?.by === "ai" ? `, AI: ${u.reason}` : u?.by === "rules" && u.reason ? `, AI not used: ${u.reason}` : "";
+      let tag = u?.by === "ai" ? `, AI: ${u.reason}` : u?.by === "rules" && u.reason ? `, AI not used: ${u.reason}` : "";
+      if (u?.speech === "ai") tag += ", AI words";
+      else if (u?.speech === "script") tag += `, script kept: ${u.speechReason}`;
       lines.push(`- **Customer:** ${t.customer}`, `  - **Max (Beat ${t.beat}${tag}):** ${t.max}`);
     });
     lines.push("", "</details>", "");
@@ -324,10 +336,33 @@ function understandingRows(calls: SimCall[]): string[] {
   ];
 }
 
+/** AI speech: how many replies the AI worded, why the approved line was kept, and the time */
+function speechRows(calls: SimCall[]): string[] {
+  const all = calls.flatMap((c) => c.understanding ?? []);
+  const tried = all.filter((u) => u.speech);
+  if (!tried.length) return [`| Speech | approved lines word for word |`];
+  const ai = tried.filter((u) => u.speech === "ai");
+  const reasons = new Map<string, number>();
+  for (const u of tried) if (u.speech === "script") {
+    const k = (u.speechReason ?? "").replace(/"[^"]*"/g, "…");
+    reasons.set(k, (reasons.get(k) ?? 0) + 1);
+  }
+  const top = [...reasons].sort((a, b) => b[1] - a[1]).slice(0, 4).map(([k, n]) => `${k} ×${n}`).join(", ");
+  const ms = tried.map((u) => u.speechMs ?? 0).sort((a, b) => a - b);
+  const avg = Math.round(ms.reduce((a, b) => a + b, 0) / ms.length);
+  const p90 = ms[Math.min(ms.length - 1, Math.floor(ms.length * 0.9))];
+  return [
+    `| Speech | AI worded ${ai.length} of ${all.length} replies (${tried.length} eligible); approved line kept ${tried.length - ai.length} times${top ? `: ${top}` : ""} |`,
+    `| AI speech time | avg ${avg} ms · p90 ${p90} ms |`,
+  ];
+}
+
 async function main() {
   loadEnvLocal();
   if (args.includes("--ai")) process.env.MAX_UNDERSTANDING = "ai";
   if (args.includes("--rules")) process.env.MAX_UNDERSTANDING = "rules";
+  if (args.includes("--speech-ai")) process.env.MAX_SPEECH = "ai";
+  if (args.includes("--speech-script")) process.env.MAX_SPEECH = "script";
   const resendFile = arg("--resend");
   if (resendFile) return resend(resendFile);
   const all: Persona[] = JSON.parse(readFileSync(personasFile, "utf8")).personas;
@@ -343,7 +378,7 @@ async function main() {
 
   realLog(
     `running ${total} calls (${personas.length} personas, ${parallel} at a time, glitches ${Math.round(noise * 100)}%)` +
-      `${sheet ? ", each sent to the call log sheet" : ""}, understanding: ${process.env.MAX_UNDERSTANDING === "ai" ? "AI-first" : "rules"}...`
+      `${sheet ? ", each sent to the call log sheet" : ""}, understanding: ${process.env.MAX_UNDERSTANDING === "ai" ? "AI-first" : "rules"}, speech: ${process.env.MAX_SPEECH === "ai" ? "AI words" : "script"}...`
   );
   const jobs = Array.from({ length: total }, (_, i) => () => simulateCall(personas[i % personas.length], i + 1, noise, review, sheet));
   const calls: SimCall[] = [];

@@ -81,7 +81,7 @@ function cleanAnswer(a: string): string {
   return a.replace(/\{\{[A-Z_]+\}\}/g, "").replace(/\s+/g, " ").trim();
 }
 
-function approvedFacts(): Array<{ id: string; topic: string; answer: string; keywords: string[] }> {
+export function approvedFacts(): Array<{ id: string; topic: string; answer: string; keywords: string[] }> {
   const out: Array<{ id: string; topic: string; answer: string; keywords: string[] }> = [];
   for (const f of (kbData as { facts: Fact[] }).facts) {
     if (f.status !== "script" && f.status !== "approved") continue;

@@ -641,6 +641,11 @@ export default function CallInspectorPage() {
                               ) : (
                                 <span className="text-slate-500">no</span>
                               )}
+                              {c?.speech === "ai" ? (
+                                <span title={`AI worded this reply (${c.speechMs ?? "?"} ms)`} className="ml-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 cursor-help">Words</span>
+                              ) : c?.speech === "script" ? (
+                                <span title={`Approved line kept: ${c.speechReason ?? ""}`} className="ml-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-slate-500/20 text-slate-400 border border-slate-500/30 cursor-help">Script</span>
+                              ) : null}
                             </td>
                             <td className="p-3 text-right text-slate-300">{stageCell(t, ["stt", "endpointing"])}</td>
                             <td className="p-3 text-right text-slate-300">{stageCell(t, ["route"])}</td>

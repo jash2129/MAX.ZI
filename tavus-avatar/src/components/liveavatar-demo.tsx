@@ -613,6 +613,8 @@ export function LiveAvatarDemo() {
           classifierTimedOut: data.metrics?.classifierTimedOut,
           understanding: data.metrics?.understanding,
           aiReason: data.metrics?.aiReason,
+          speech: data.metrics?.speech,
+          speechReason: data.metrics?.speechReason,
         };
         logTurnEvent(turnLog);
 

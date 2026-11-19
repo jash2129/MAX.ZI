@@ -1,6 +1,7 @@
 import beatsData from "./beats.json" with { type: "json" };
 import { DEFAULT_DEAL_CONFIG, type DealConfig } from "./deal-config";
 import { shouldAskAI, understandWithAI } from "./ai-understanding";
+import { shouldSpeakWithAI, speakWithAI } from "./ai-speech";
 import {
   LEAD_IN_NO,
   GARBLED_LINE,
@@ -147,6 +148,11 @@ export interface CallState {
   last_check_in_tag?: string;
   /** the last few exchanges, as context for AI-first understanding */
   recent_turns?: Array<{ customer: string; max: string }>;
+  /**
+   * AI speech (MAX_SPEECH=ai): last_spoken_text stays the approved line, so every rule that looks at
+   * "what Max just said" works as before; `said` is the AI's wording of that line, actually spoken
+   */
+  last_said?: { script: string; said: string };
   is_impatient_flow?: boolean;
   sentence_index?: number;
   total_sentences?: number;
@@ -267,6 +273,15 @@ export interface TurnMetrics {
   /** AI-first understanding: who decided this turn's meaning, and the AI's reason */
   understanding?: "rules" | "ai";
   aiReason?: string;
+  /** AI speech (MAX_SPEECH=ai): who worded the reply, why the approved line was kept, and the time */
+  speech?: "ai" | "script";
+  speechReason?: string;
+  speechMs?: number;
+}
+
+/** The words Max actually said last: the AI's wording when it was used, else the approved line */
+export function lastSaid(state: CallState): string {
+  return state.last_said && state.last_said.script === state.last_spoken_text ? state.last_said.said : state.last_spoken_text;
 }
 
 export interface ControllerDecision {
@@ -2104,7 +2119,7 @@ export async function classifyWithLLM(
       beatId: state.current_beat,
       beatExpects: expects === "consent" ? "yes_no" : expects,
       beatText: beat?.text ?? "",
-      lastSpoken: state.last_spoken_text,
+      lastSpoken: lastSaid(state),
       pendingQuestion: pendingQuestion(state),
       recentTurns: state.recent_turns ?? [],
       ruleResult: fastRuleResult,
@@ -2665,10 +2680,40 @@ export async function processControllerTurn(
   let decision = await runControllerTurn(sessionId, customerTranscript, dealConfig, mockClassification, metrics);
   decision = await handleMisses(sessionId, customerTranscript, dealConfig, decision, beatBefore, snapshot, metrics);
   varyRepeat(decision, beatBefore, snapshot.last_spoken_text);
-  decision.state.recent_turns = [...(decision.state.recent_turns ?? []), { customer: customerTranscript, max: decision.textToSpeak }].slice(-3);
+  // AI speech (MAX_SPEECH=ai): the approved line chosen above is the draft; the AI says it in Max's own
+  // words, and the checker falls back to the draft on anything it adds or drops (src/lib/ai-speech.ts)
+  const recentBefore = decision.state.recent_turns ?? [];
+  if (
+    shouldSpeakWithAI({
+      intent: decision.intent,
+      beatBefore,
+      beatAfter: decision.beatId,
+      beatType: decision.beatType,
+      isScriptComplete: decision.isScriptComplete,
+      draft: decision.textToSpeak,
+    })
+  ) {
+    const tSpeech = Date.now();
+    const spoken = await speakWithAI({
+      customer: customerTranscript,
+      draft: decision.textToSpeak,
+      intent: decision.intent,
+      meaning: metrics.understanding === "ai" ? metrics.aiReason : undefined,
+      recentTurns: recentBefore,
+    });
+    metrics.speech = spoken.source;
+    metrics.speechReason = spoken.reason;
+    metrics.speechMs = Date.now() - tSpeech;
+    if (spoken.source === "ai") decision.textToSpeak = spoken.text;
+  }
+  decision.state.recent_turns = [...recentBefore, { customer: customerTranscript, max: decision.textToSpeak }].slice(-3);
   if (decision.state.vehicle_disputed) {
     decision.textToSpeak = scrubDisputedVehicle(decision.textToSpeak, decision.state);
-    decision.state.last_spoken_text = decision.textToSpeak;
+    decision.state.last_spoken_text = metrics.speech === "ai" ? scrubDisputedVehicle(decision.state.last_spoken_text, decision.state) : decision.textToSpeak;
+  }
+  decision.state.last_said = { script: decision.state.last_spoken_text, said: decision.textToSpeak };
+  if (metrics.speech) {
+    console.log(`[beat-controller] speech=${metrics.speech} (${metrics.speechReason}, ${metrics.speechMs} ms), Beat ${beatBefore} -> ${decision.beatId}`);
   }
   decision.metrics = {
     ...metrics,

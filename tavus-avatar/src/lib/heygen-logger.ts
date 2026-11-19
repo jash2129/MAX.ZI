@@ -20,6 +20,10 @@ export type ControllerTurnMetrics = {
   /** AI-first understanding: who decided the meaning ("ai" or "rules") and the AI's reason */
   understanding?: "rules" | "ai";
   aiReason?: string;
+  /** AI speech (MAX_SPEECH=ai): who worded Max's reply, why the approved line was kept, and the time */
+  speech?: "ai" | "script";
+  speechReason?: string;
+  speechMs?: number;
 };
 
 export type TurnTimingLog = {
@@ -103,6 +107,8 @@ export type HeygenCallLog = {
     classifierTimedOut?: boolean;
     understanding?: "rules" | "ai";
     aiReason?: string;
+    speech?: "ai" | "script";
+    speechReason?: string;
   }>;
 };
 
