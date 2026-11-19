@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { chooseSttEngine, ResultAssembler, DeepgramRecognizer, DEEPGRAM_LISTEN_URL, sttFallbackLogLine, type RecognizerLike } from "./deepgram-stt";
+import { chooseSttEngine, ResultAssembler, DeepgramRecognizer, DEEPGRAM_LISTEN_URL, STT_KEYTERMS, sttFallbackLogLine, type RecognizerLike } from "./deepgram-stt";
 
 describe("which speech recognition a call uses", () => {
   it("Deepgram is the default when neither the URL nor NEXT_PUBLIC_STT_ENGINE picks one", () => {
@@ -21,6 +21,17 @@ describe("which speech recognition a call uses", () => {
     expect(url.searchParams.get("interim_results")).toBe("true");
     expect(url.searchParams.get("vad_events")).toBe("true");
     expect(url.searchParams.get("endpointing")).toBe("300");
+  });
+
+  it("sends every car and finance hint word as its own nova-3 keyterm", () => {
+    const url = new URL(DEEPGRAM_LISTEN_URL);
+    expect(url.searchParams.get("model")).toBe("nova-3");
+    expect(url.searchParams.getAll("keyterm")).toEqual([...STT_KEYTERMS]);
+    for (const t of ["GAP", "VSC", "tire and wheel", "bumper to bumper", "powertrain", "warranty", "maintenance", "deductible", "finance manager", "TXM", "Max"]) {
+      expect(url.searchParams.getAll("keyterm"), t).toContain(t);
+    }
+    // Multi-word terms stay one keyterm, encoded in the URL
+    expect(DEEPGRAM_LISTEN_URL).toContain("keyterm=tire+and+wheel");
   });
 });
 

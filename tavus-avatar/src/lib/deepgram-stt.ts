@@ -46,19 +46,39 @@ export function defaultSttEngine(configured: string | undefined): SttEngine {
   return chooseSttEngine("", configured);
 }
 
+/**
+ * Words Deepgram should expect on these calls (nova-3 keyterm prompting): product names and finance
+ * terms it would otherwise mishear ("gap" as "cap", "VSC" as "BSC"). Add new terms here; each one
+ * becomes its own keyterm= parameter.
+ */
+export const STT_KEYTERMS = [
+  "GAP",
+  "VSC",
+  "tire and wheel",
+  "bumper to bumper",
+  "powertrain",
+  "warranty",
+  "maintenance",
+  "deductible",
+  "finance manager",
+  "TXM",
+  "Max",
+] as const;
+
 export const DEEPGRAM_LISTEN_URL =
   "wss://api.deepgram.com/v1/listen?" +
-  new URLSearchParams({
-    model: "nova-3",
-    language: "en-US",
-    smart_format: "true",
-    punctuate: "true",
-    interim_results: "true",
+  new URLSearchParams([
+    ["model", "nova-3"],
+    ["language", "en-US"],
+    ["smart_format", "true"],
+    ["punctuate", "true"],
+    ["interim_results", "true"],
     // A final as soon as there is 300 ms of silence; the call screen's own timers decide the turn end
-    endpointing: "300",
-    utterance_end_ms: "1000",
-    vad_events: "true",
-  }).toString();
+    ["endpointing", "300"],
+    ["utterance_end_ms", "1000"],
+    ["vad_events", "true"],
+    ...STT_KEYTERMS.map((t): [string, string] => ["keyterm", t]),
+  ]).toString();
 
 const CHUNK_MS = 250;
 const KEEPALIVE_MS = 8000;
