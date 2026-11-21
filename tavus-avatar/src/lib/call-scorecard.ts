@@ -168,7 +168,8 @@ export function scoreCall(turns: ScoredTurn[]): Scorecard {
     let detail: string | undefined;
     for (const t of turns) {
       const c = norm(t.customer);
-      const refused = /\b(no|don t want|not paying|not buying|not interested)\b/.test(c) && !/\bno problem\b/.test(c);
+      // "no problem", "no worries", "no doubt", "a no brainer" are agreement, not a refusal
+      const refused = /\b(no|don t want|not paying|not buying|not interested)\b/.test(c.replace(/\bno (problem|worries|doubt|brainer)\b/g, ""));
       if (!detail && refused && norm(t.max).includes("we re moving forward with")) {
         detail = `after "${short(t.customer, 60)}" Max said "${short(t.max)}"`;
       }

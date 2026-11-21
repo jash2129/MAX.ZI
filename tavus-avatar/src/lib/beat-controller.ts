@@ -991,6 +991,22 @@ const ONE_WORD_ANSWERS = new Set(
     "go understood understand gotcha agreed agree deal done ready mhm hmm hm uh um thanks thank").split(" ")
 );
 
+/** A lone word that is not an answer ("oh", "I", "sorry"): a speech-recognition fragment */
+export function isLoneFragment(transcript: string): boolean {
+  const words = transcript.toLowerCase().replace(/[^a-z0-9 ]/g, " ").split(/\s+/).filter(Boolean);
+  return words.length === 1 && !ONE_WORD_ANSWERS.has(words[0]);
+}
+
+/** Free AI: the customer refused or pushed back on the price ("No", "too much", "what's your lowest?") */
+export function isPricePushback(transcript: string): boolean {
+  const n = transcript.toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+  return (
+    isPriceRefusal(transcript) ||
+    isPlainNo(n) ||
+    /\b(too (much|expensive|high|pricey)|lower|cheaper|lowest|best (price|you can do)|final offer|discount|can t afford|cant afford|bring it down|come down|that s a lot|thats a lot)\b/.test(n)
+  );
+}
+
 // A plain refusal with nothing else in it ("no", "nope", "no thanks", "not interested")
 export function isPlainNo(norm: string): boolean {
   return /^(no|nope|nah|no thanks|no thank you|not really|not interested|i m not interested|im not interested|i don t think so|i dont think so|that doesn t work|that doesnt work|doesn t work for me|not for me|i ll pass|ill pass|pass)( (max|sir|man|thanks|thank you))?$/.test(norm);
@@ -2758,14 +2774,30 @@ async function processFreeTurn(
   const state = getOrCreateCallState(sessionId, dealConfig);
   // After the call has ended every turn gets the fixed closing line, from the script
   if (state.is_stopped) return { reason: "call ended: fixed closing line", ms: 0, attempts: 0 };
+  // A lone fragment ("oh", "I") is not an answer: the script asks the customer to say it again
+  if (state.step0_completed && isLoneFragment(customerTranscript)) return { reason: "fragment: the script asks again", ms: 0, attempts: 0 };
   const beatBefore = state.current_beat;
+  const atPrice = beatBefore >= PRICE_BEAT && !state.package_declined && !state.finalize_confirmed;
+  const pushback = atPrice && isPricePushback(customerTranscript);
+  // At the floor, a refusal after the final choice ("$3 a day, or keep your factory warranty?") is the
+  // customer's decision: the script keeps the factory warranty and moves to the paperwork
+  if (pushback && state.free_lowest_offer === PRICE_LADDER[PRICE_LADDER.length - 1] && state.floor_decision_asked) {
+    return { reason: "declined at the floor: the script closes it", ms: 0, attempts: 0 };
+  }
   const script = freeScript(state.dealConfig);
   const corpus = `${script.beats.map((b) => b.text).join(" ")} ${script.facts} ${script.vehicle} ${STEP_0_GREETING}`;
   const outcome = await runFreeTurn({
     system: buildFreeSystemPrompt(script),
     history: freeHistory(state),
     customer: customerTranscript,
-    guard: { corpus, beatBefore, lowestOffered: state.free_lowest_offer },
+    guard: {
+      corpus,
+      beatBefore,
+      lowestOffered: state.free_lowest_offer,
+      refusedPrice: pushback,
+      customerSaid: [...freeHistory(state).filter((m) => m.role === "user").map((m) => m.content), customerTranscript].join(" "),
+      recentMax: freeHistory(state).filter((m) => m.role === "assistant").slice(-2).map((m) => m.content),
+    },
     where: callStateNote({ beat: beatBefore, disclosureGiven: Boolean(state.free_disclosure_given), lowestOffered: state.free_lowest_offer }),
   });
   if (!outcome.ok) return { reason: outcome.reason, ms: outcome.ms, attempts: outcome.attempts };
@@ -2799,6 +2831,10 @@ async function processFreeTurn(
     toolCalls = [...toolCalls, { name: "show_payment_breakdown", args: { daily_rate: Math.min(...prices) } }];
   }
   if (reply.declined) state.package_declined = true;
+  // The final choice at the floor was offered: the next refusal is the customer's decision
+  if ((state.free_lowest_offer === PRICE_LADDER[PRICE_LADDER.length - 1] || prices.includes(PRICE_LADDER[PRICE_LADDER.length - 1])) && /factory warranty/i.test(say) && say.includes("?")) {
+    state.floor_decision_asked = true;
+  }
 
   state.current_beat = beat;
   state.delivered_beats = Array.from({ length: beat }, (_, i) => i + 1);

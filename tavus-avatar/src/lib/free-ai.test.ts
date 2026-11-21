@@ -17,7 +17,7 @@ import {
 } from "./free-ai";
 import { processControllerTurn, getOrCreateCallState, resetCallState, BEATS } from "./beat-controller";
 import { DEFAULT_DEAL_CONFIG } from "./deal-config";
-import { CLOSING_LINE } from "./max-lines";
+import { CLOSING_LINE, DECLINE_LINE } from "./max-lines";
 
 const ENV = { ...process.env };
 let replies: string[] = [];
@@ -132,6 +132,17 @@ describe("the guards", () => {
     expect(guardFreeReply(reply({ say: "**Great**" }), ctx(5)).reason).toBe("formatting");
   });
 
+  it("a refusal at the price is never confirmed, and above the floor gets the next lower price", () => {
+    const refused = (lowest: number) => ({ corpus, beatBefore: 23, lowestOffered: lowest, refusedPrice: true });
+    const confirm = "Okay, so to confirm, we're moving forward with full vehicle protection for three dollars and fifty cents a day.";
+    expect(guardFreeReply(reply({ say: confirm, beat: 24 }), refused(4)).reason).toMatch(/confirmed the package right after a refusal/);
+    expect(guardFreeReply(reply({ say: "Which two of those do you see the most value in?", beat: 23 }), refused(4)).reason).toMatch(/must get the next lower price, \$3\.5/);
+    expect(guardFreeReply(reply({ say: "I hear you. I can do three dollars and fifty cents a day.", beat: 23 }), refused(4)).ok).toBe(true);
+    // At the floor: no lower price exists, but still never a confirmation
+    expect(guardFreeReply(reply({ say: "Three dollars a day is the lowest I can go. Go ahead, or keep your factory warranty?", beat: 23 }), refused(3)).ok).toBe(true);
+    expect(guardFreeReply(reply({ say: "Great, so to confirm, we're moving forward with it.", beat: 24 }), refused(3)).ok).toBe(false);
+  });
+
   it("reads prices said in words and digits", () => {
     expect(dailyPrices("four dollars a day, or $3.25 per day, three dollars and fifty cents a day")).toEqual([4, 3.5, 3.25]);
   });
@@ -204,6 +215,54 @@ describe("in a call", () => {
     const st = getOrCreateCallState(sid);
     expect(st.free_lowest_offer).toBe(3);
     expect(st.free_history?.at(-1)?.content).toBe(d.textToSpeak);
+  });
+
+  it("'No' at the price, three times: never a confirmed sale (simulated batch 2026-11-21)", async () => {
+    // The AI keeps trying to confirm; the guard rejects it, and the script takes those turns
+    aiReplies({ say: "Okay, so to confirm, we're moving forward with full vehicle protection for three dollars and fifty cents a day.", beat: 24 });
+    const sid = newCall(23, { lowest: 4 });
+    const steps = ["three dollars and fifty cents", "three dollars and twenty-five cents", "three dollars a day"];
+    for (const [i, line] of ["No", "No. What's the actual lowest you can do?", "No. Too expensive."].entries()) {
+      const d = await say(sid, line);
+      expect(d.textToSpeak, line).not.toMatch(/moving forward with/i);
+      expect(d.metrics?.mode, line).toBe("script");
+      expect(d.textToSpeak, line).toContain(steps[i]);
+    }
+    expect(getOrCreateCallState(sid).free_lowest_offer).toBe(3);
+  });
+
+  it("the customer's own numbers (their address) are not invented figures", () => {
+    const ctx = { corpus, beatBefore: 25, lowestOffered: 3, customerSaid: "My address is 1423 Oak Grove Lane, Austin 78704" };
+    expect(guardFreeReply(reply({ say: "Thanks, I have 1423 Oak Grove Lane, Austin 78704.", beat: 25 }), ctx).ok).toBe(true);
+    expect(guardFreeReply(reply({ say: "Thanks, I have 1423 Oak Grove Lane, Austin 78704.", beat: 25 }), { ...ctx, customerSaid: "" }).ok).toBe(false);
+  });
+
+  it("saying Max's last line again word for word is rejected", () => {
+    const last = "Thank you David, I've noted that down. Now let me quickly verify your full legal name.";
+    expect(guardFreeReply(reply({ say: last, beat: 25 }), { corpus, beatBefore: 25, lowestOffered: 3, recentMax: [last] }).reason).toBe("repeats what Max just said");
+  });
+
+  it("a refusal after the final choice at three dollars: the script keeps the factory warranty", async () => {
+    aiReplies({ say: "At three dollars a day, would you like to go ahead, or keep just your factory warranty?", beat: 23 });
+    const sid = newCall(23, { lowest: 3 });
+    getOrCreateCallState(sid).concession_stage = 4;
+    const first = await say(sid, "I'm not buying any of it.");
+    expect(first.metrics?.mode).toBe("free");
+    expect(getOrCreateCallState(sid).floor_decision_asked).toBe(true);
+    const second = await say(sid, "Just the factory warranty. No protection package at all.");
+    expect(second.metrics?.mode).toBe("script");
+    expect(second.textToSpeak.startsWith(DECLINE_LINE)).toBe(true);
+    expect(getOrCreateCallState(sid).package_declined).toBe(true);
+  });
+
+  it("a lone fragment is handled by the script and never moves the call on", async () => {
+    aiReplies({ say: "Great, moving on to the next part.", beat: 14 });
+    const sid = newCall(12);
+    const d = await say(sid, "Oh");
+    expect(d.metrics?.mode).toBe("script");
+    expect(d.metrics?.freeReason).toMatch(/fragment/);
+    expect(d.beatId).toBe(12);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it("ending the call closes it; every later turn gets the fixed closing line", async () => {

@@ -167,7 +167,15 @@ export interface GuardContext {
   /** the furthest beat delivered before this turn */
   beatBefore: number;
   lowestOffered: number | null | undefined;
+  /** the customer just refused or pushed back on the price (at the price beats) */
+  refusedPrice?: boolean;
+  /** what the customer has said this call: their own numbers (an address, a year) are not invented */
+  customerSaid?: string;
+  /** Max's last two lines: saying one of them again word for word is a loop */
+  recentMax?: string[];
 }
+
+const loopKey = (t: string) => t.toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim().slice(0, 90);
 
 export interface GuardResult {
   ok: boolean;
@@ -194,14 +202,28 @@ export function guardFreeReply(reply: FreeReply, ctx: GuardContext): GuardResult
     }
   }
 
-  // Numbers and claims the script and facts do not make
-  const allowed = new Set(numberTokens(`${ctx.corpus} four three fifty twenty five`));
+  // A refusal at the price is never a yes: no confirmation, and above the floor the next lower price
+  // (simulated batch 2026-11-21: "No" at Beat 23 got "so to confirm, we're moving forward with ...")
+  if (ctx.refusedPrice) {
+    if (/\b(moving forward with|so to confirm|to confirm,? we)\b/i.test(t)) return fail("confirmed the package right after a refusal");
+    const current = ctx.lowestOffered ?? PRICE_LADDER[0];
+    if (current > PRICE_LADDER[PRICE_LADDER.length - 1] && !prices.some((p) => p < current)) {
+      return fail(`a no at $${current} a day must get the next lower price, $${lowestAllowedPrice(current)} a day`);
+    }
+  }
+
+  // Never the same line again word for word (simulated batch 2026-11-21: three loops)
+  const key = loopKey(t);
+  if (key.length > 20 && (ctx.recentMax ?? []).some((m) => loopKey(m) === key)) return fail("repeats what Max just said");
+
+  // Numbers and claims the script and facts do not make (the customer's own numbers are fine)
+  const allowed = new Set(numberTokens(`${ctx.corpus} ${ctx.customerSaid ?? ""} four three fifty twenty five`));
   for (const n of numberTokens(t)) if (!allowed.has(n)) return fail(`new number "${n}"`);
   // A number with its unit must appear with that unit somewhere approved: "twelve" may be in the
   // script, "twelve years" is not
-  const corpusUnits = new Set(numberWithUnit(ctx.corpus));
+  const corpusUnits = new Set(numberWithUnit(`${ctx.corpus} ${ctx.customerSaid ?? ""}`));
   for (const p of numberWithUnit(t)) if (!corpusUnits.has(p) && !/ (dollar|cent)$/.test(p)) return fail(`new figure "${p}"`);
-  const risk = addedRisk(t, ctx.corpus);
+  const risk = addedRisk(t, `${ctx.corpus} ${ctx.customerSaid ?? ""}`);
   if (risk) return fail(risk);
   return { ok: true, prices };
 }

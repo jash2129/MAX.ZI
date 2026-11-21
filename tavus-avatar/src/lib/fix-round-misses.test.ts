@@ -161,6 +161,10 @@ describe("closing at the $3 floor", () => {
       { customer: "No, I don't want the protection", max: "Great, so to confirm, we're moving forward with full vehicle protection for three dollars a day.", beat: 24 },
     ]);
     expect(bad.checks.find((c) => c.id === "no_confirm_after_refusal")?.pass).toBe(false);
+    const ok = scoreCall([
+      { customer: "Three fifty a day sounds great, this feels like a no brainer.", max: "Great, so to confirm, we're moving forward with full vehicle protection for three dollars and fifty cents a day.", beat: 24 },
+    ]);
+    expect(ok.checks.find((c) => c.id === "no_confirm_after_refusal")?.pass).toBe(true);
   });
 
   it("the floor line is never said four times: a haggling run passes the loop check", async () => {
