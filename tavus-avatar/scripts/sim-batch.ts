@@ -61,7 +61,7 @@ interface SimCall {
   review?: { aiScore: number | ""; callSummary: string; problemsFound: string; customerSentiment: string };
   seconds: number;
   /** AI-first understanding, per turn: who decided, the AI's reason, and the classifier time */
-  understanding?: Array<{ by: "ai" | "rules" | "-"; reason?: string; ms: number; speech?: "ai" | "script"; speechReason?: string; speechMs?: number; mode?: "free" | "script"; freeReason?: string; freeMs?: number }>;
+  understanding?: Array<{ by: "ai" | "rules" | "-"; reason?: string; ms: number; speech?: "ai" | "script"; speechReason?: string; speechMs?: number; mode?: "free" | "script"; freeReason?: string; freeMs?: number; firstMs?: number; totalMs?: number; streamed?: boolean; combined?: boolean }>;
 }
 
 function loadEnvLocal() {
@@ -147,7 +147,15 @@ async function simulateCall(persona: Persona, n: number, noise: number, review: 
       said = glitch(said, lastMax);
       glitched++;
     }
-    const d = await bc.processControllerTurn(id, said, DEFAULT_DEAL_CONFIG);
+    // When Max could start speaking: the streamed first sentences, or the whole reply
+    const tTurn = Date.now();
+    let firstMs: number | undefined;
+    const d = await bc.processControllerTurn(id, said, DEFAULT_DEAL_CONFIG, undefined, {
+      onEarly: () => {
+        firstMs = Date.now() - tTurn;
+      },
+    });
+    const totalMs = Date.now() - tTurn;
     turns.push({ customer: said, max: d.textToSpeak, beat: d.beatId });
     understanding.push({
       by: d.metrics?.understanding ?? "-",
@@ -159,6 +167,10 @@ async function simulateCall(persona: Persona, n: number, noise: number, review: 
       mode: d.metrics?.mode,
       freeReason: d.metrics?.freeReason,
       freeMs: d.metrics?.freeMs,
+      firstMs: firstMs ?? totalMs,
+      totalMs,
+      streamed: firstMs !== undefined,
+      combined: d.metrics?.combined,
     });
     history.push({ role: "user", content: d.textToSpeak });
     lastMax = d.textToSpeak;
@@ -288,6 +300,7 @@ function report(calls: SimCall[], noise: number): string {
     ...understandingRows(calls),
     ...speechRows(calls),
     ...freeRows(calls),
+    ...startRows(calls),
     ``,
     `## Checks`,
     ``,
@@ -340,6 +353,22 @@ function understandingRows(calls: SimCall[]): string[] {
   return [
     `| Understanding | AI-first: AI decided ${ai.length} of ${all.length} turns, fell back to the rules ${asked.length - ai.length} times |`,
     `| AI time per asked turn | avg ${avg} ms · p90 ${p90} ms |`,
+  ];
+}
+
+/** Streaming: how long until Max could start speaking, against the whole reply (every turn) */
+function startRows(calls: SimCall[]): string[] {
+  const all = calls.flatMap((c) => c.understanding ?? []).filter((u) => u.totalMs !== undefined);
+  if (!all.length) return [];
+  const stats = (v: number[]) => {
+    const s = [...v].sort((a, b) => a - b);
+    return `avg ${Math.round(v.reduce((a, b) => a + b, 0) / v.length)} ms · median ${s[Math.floor(s.length / 2)]} ms · p90 ${s[Math.min(s.length - 1, Math.floor(s.length * 0.9))]} ms`;
+  };
+  const streamed = all.filter((u) => u.streamed).length;
+  const combined = all.filter((u) => u.combined).length;
+  return [
+    `| Max starts speaking after | ${stats(all.map((u) => u.firstMs ?? u.totalMs!))} (first sentences streamed on ${streamed} of ${all.length} turns) |`,
+    `| Whole reply ready after | ${stats(all.map((u) => u.totalMs!))}${combined ? ` · Option C in one call on ${combined} turns` : ""} |`,
   ];
 }
 

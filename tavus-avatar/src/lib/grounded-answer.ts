@@ -11,6 +11,7 @@
  */
 import kbData from "./max-knowledge-base.json" with { type: "json" };
 import { UNKNOWN_QUESTION_LINE } from "./max-lines";
+import { extraLLMAllowed } from "./llm-context";
 
 interface Fact {
   id: string;
@@ -131,7 +132,7 @@ function firstSentences(text: string, n: number): string {
 
 async function rewriteWithLLM(question: string, passages: string[]): Promise<string> {
   const apiKey = process.env.XAI_API_KEY?.trim() || process.env.OPENAI_API_KEY?.trim();
-  if (!apiKey) return "";
+  if (!apiKey || !extraLLMAllowed()) return "";
   const isXai = Boolean(process.env.XAI_API_KEY);
   const endpoint = isXai ? "https://api.x.ai/v1/chat/completions" : "https://api.openai.com/v1/chat/completions";
   const model = process.env.GROK_MODEL?.trim() || (isXai ? "grok-4.20-0309-non-reasoning" : "gpt-4o-mini");
@@ -220,7 +221,8 @@ async function pickFactWithLLM(
 }
 
 export async function answerFromKnowledgeBase(question: string): Promise<GroundedResult> {
-  const usedLLM = Boolean(process.env.XAI_API_KEY?.trim() || process.env.OPENAI_API_KEY?.trim());
+  // Inside a combined Option C turn the one AI call words the reply: keywords only here
+  const usedLLM = extraLLMAllowed() && Boolean(process.env.XAI_API_KEY?.trim() || process.env.OPENAI_API_KEY?.trim());
 
   // 1. With a key, the model picks the fact id and Max speaks that fact's approved sentences.
   if (usedLLM) {

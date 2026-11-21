@@ -1,7 +1,17 @@
 import beatsData from "./beats.json" with { type: "json" };
 import { DEFAULT_DEAL_CONFIG, type DealConfig } from "./deal-config";
-import { shouldAskAI, understandWithAI } from "./ai-understanding";
-import { shouldSpeakWithAI, speakWithAI } from "./ai-speech";
+import {
+  shouldAskAI,
+  understandWithAI,
+  isAIFirstEnabled,
+  meaningToClassification,
+  MEANINGS,
+  COVERAGE_TOPIC_GROUPS,
+  type Meaning,
+} from "./ai-understanding";
+import { shouldSpeakWithAI, speakWithAI, isAISpeechEnabled, factsFor } from "./ai-speech";
+import { understandAndSpeak, type ReplyOption } from "./ai-reply";
+import { withoutExtraLLM, extraLLMAllowed, isQuietRun } from "./llm-context";
 import {
   isFreeAIEnabled,
   buildFreeSystemPrompt,
@@ -299,6 +309,9 @@ export interface TurnMetrics {
   freeReason?: string;
   freeMs?: number;
   freeAttempts?: number;
+  /** Option C in one AI call: understanding and wording together (ms of that call, and planning) */
+  combined?: boolean;
+  planMs?: number;
 }
 
 /** The words Max actually said last: the AI's wording when it was used, else the approved line */
@@ -314,6 +327,8 @@ export interface ControllerDecision {
   state: CallState;
   intent: ClassifierIntent | "step0" | "greeting" | "free";
   isScriptComplete?: boolean;
+  /** Streaming: the first sentences already sent for speaking; textToSpeak always starts with them */
+  earlyText?: string;
   metrics?: TurnMetrics & { controllerMs: number; intent: string; beatBefore: number; beatAfter: number };
 }
 
@@ -377,7 +392,8 @@ export async function processClientTurn(
   sessionId: string,
   customerTranscript: string,
   turnId: number,
-  dealConfig = DEFAULT_DEAL_CONFIG
+  dealConfig = DEFAULT_DEAL_CONFIG,
+  opts: TurnOptions = {}
 ): Promise<ControllerDecision> {
   const state = getOrCreateCallState(sessionId, dealConfig);
   // A new turn implies the previous reply was not rolled back in time: keep it
@@ -421,7 +437,7 @@ export async function processClientTurn(
   }
 
   const before = cloneState(state);
-  const decision = await processControllerTurn(sessionId, customerTranscript, dealConfig);
+  const decision = await processControllerTurn(sessionId, customerTranscript, dealConfig, undefined, opts);
   pendingCommits.set(sessionId, { turnId, before, after: cloneState(state), text: decision.textToSpeak, toolCalls: decision.toolCalls });
   return decision;
 }
@@ -2150,7 +2166,7 @@ export async function classifyWithLLM(
   const fastRuleResult = classifyCustomerInputRuleBased(customerTranscript, state.current_beat);
   // AI-first understanding (MAX_UNDERSTANDING=ai): longer replies during Beats 2-21 are read by the AI
   // in context; the rules' answer is the fallback (src/lib/ai-understanding.ts)
-  if (state.step0_completed && shouldAskAI(customerTranscript, state.current_beat, fastRuleResult.intent)) {
+  if (extraLLMAllowed() && state.step0_completed && shouldAskAI(customerTranscript, state.current_beat, fastRuleResult.intent)) {
     const beat = BEATS.find((b) => b.id === state.current_beat);
     const expects = beat?.expects ?? "statement";
     return understandWithAI({
@@ -2164,7 +2180,7 @@ export async function classifyWithLLM(
       ruleResult: fastRuleResult,
     });
   }
-  if (fastRuleResult.intent !== "other") {
+  if (fastRuleResult.intent !== "other" || !extraLLMAllowed()) {
     return fastRuleResult;
   }
 
@@ -2705,24 +2721,177 @@ async function handleGroundedTurn(
 // MAIN CONTROLLER DECISION FUNCTION
 // Evaluates customer input against current call state and outputs exact text to speak
 // -----------------------------------------------------------------------------
+export interface TurnOptions {
+  /**
+   * Streaming: called once with Max's first sentences as soon as they are written and have passed the
+   * "adds nothing new" checks, so the avatar can start speaking. The decision's text starts with them.
+   */
+  onEarly?: (text: string) => void;
+}
+
 export async function processControllerTurn(
   sessionId: string,
   customerTranscript: string,
   dealConfig = DEFAULT_DEAL_CONFIG,
-  mockClassification?: ClassificationResult
+  mockClassification?: ClassificationResult,
+  opts: TurnOptions = {}
 ): Promise<ControllerDecision> {
-  // Free AI (MAX_MODE=free): the AI runs the call; a turn it cannot do safely goes to the script
+  let early: string | undefined;
+  const onEarly = opts.onEarly
+    ? (t: string) => {
+        if (early) return;
+        early = t;
+        opts.onEarly!(t);
+      }
+    : undefined;
+  let decision: ControllerDecision;
+
   if (isFreeAIEnabled() && !mockClassification) {
-    const free = await processFreeTurn(sessionId, customerTranscript, dealConfig);
-    if ("decision" in free) return free.decision;
-    const scripted = await processScriptedTurn(sessionId, customerTranscript, dealConfig);
-    scripted.metrics = { ...scripted.metrics!, mode: "script", freeReason: free.reason, freeMs: free.ms, freeAttempts: free.attempts };
-    pushFree(scripted.state, customerTranscript, scripted.textToSpeak);
-    syncFreeFromScript(scripted.state);
-    console.log(JSON.stringify({ event: "free_ai_fallback", sessionId, reason: free.reason, beat: scripted.beatId }));
-    return scripted;
+    // Free AI (MAX_MODE=free): the AI runs the call; a turn it cannot do safely goes to the script
+    const free = await processFreeTurn(sessionId, customerTranscript, dealConfig, onEarly);
+    if ("decision" in free) decision = free.decision;
+    else {
+      // Part of the reply is already being spoken: the script answers at once, without more AI calls
+      decision = early
+        ? await withoutExtraLLM(() => processScriptedTurn(sessionId, customerTranscript, dealConfig, undefined, { skipSpeech: true }))
+        : await processScriptedTurn(sessionId, customerTranscript, dealConfig);
+      decision.metrics = { ...decision.metrics!, mode: "script", freeReason: free.reason, freeMs: free.ms, freeAttempts: free.attempts };
+      if (early) keepEarlyPrefix(decision, early);
+      pushFree(decision.state, customerTranscript, decision.textToSpeak);
+      syncFreeFromScript(decision.state);
+      console.log(JSON.stringify({ event: "free_ai_fallback", sessionId, reason: free.reason, beat: decision.beatId }));
+    }
+  } else if (!mockClassification && isAIFirstEnabled() && isAISpeechEnabled()) {
+    // Option C in one AI call when the AI has to read the reply; otherwise the usual path
+    decision =
+      (await combinedTurn(sessionId, customerTranscript, dealConfig, onEarly)) ??
+      (await processScriptedTurn(sessionId, customerTranscript, dealConfig, undefined, { onEarly }));
+  } else {
+    decision = await processScriptedTurn(sessionId, customerTranscript, dealConfig, mockClassification, { onEarly });
   }
-  return processScriptedTurn(sessionId, customerTranscript, dealConfig, mockClassification);
+  if (early) {
+    keepEarlyPrefix(decision, early);
+    decision.earlyText = early;
+  }
+  return decision;
+}
+
+/**
+ * The early part was already spoken: whatever came after (the AI's words, or the approved line when
+ * the whole reply failed a check) must follow it, and the call's records must say what was spoken.
+ */
+function keepEarlyPrefix(decision: ControllerDecision, early: string): void {
+  if (decision.textToSpeak.startsWith(early)) return;
+  const before = decision.textToSpeak;
+  decision.textToSpeak = `${early} ${before}`;
+  const st = decision.state;
+  const last = st.recent_turns?.at(-1);
+  if (last && last.max === before) last.max = decision.textToSpeak;
+  if (st.last_said && st.last_said.said === before) st.last_said.said = decision.textToSpeak;
+}
+
+// -----------------------------------------------------------------------------
+// OPTION C IN ONE AI CALL (MAX_UNDERSTANDING=ai + MAX_SPEECH=ai): the controller lists the approved
+// line every possible meaning leads to; one AI call picks the meaning and words that line
+// (src/lib/ai-reply.ts). Used only on turns the AI would have to read (shouldAskAI).
+// -----------------------------------------------------------------------------
+async function combinedTurn(
+  sessionId: string,
+  customerTranscript: string,
+  dealConfig: DealConfig,
+  onEarly?: (text: string) => void
+): Promise<ControllerDecision | null> {
+  const state = getOrCreateCallState(sessionId, dealConfig);
+  if (!state.step0_completed || state.is_stopped) return null;
+  const rules = classifyCustomerInputRuleBased(customerTranscript, state.current_beat);
+  if (!shouldAskAI(customerTranscript, state.current_beat, rules.intent)) return null;
+  const beat = BEATS.find((b) => b.id === state.current_beat);
+  const expects = beat?.expects ?? "statement";
+  const beatExpects = expects === "consent" ? "yes_no" : expects;
+
+  const tPlan = Date.now();
+  const options = await planReplyOptions(sessionId, customerTranscript, dealConfig, beatExpects);
+  const planMs = Date.now() - tPlan;
+  const facts = factsFor({ customer: customerTranscript, draft: "", intent: "", recentTurns: [] });
+  const outcome = await understandAndSpeak(
+    {
+      transcript: customerTranscript,
+      beatId: state.current_beat,
+      beatExpects,
+      lastSpoken: lastSaid(state),
+      pendingQuestion: pendingQuestion(state),
+      recentTurns: state.recent_turns ?? [],
+      options,
+      facts,
+    },
+    onEarly
+  );
+
+  if (!outcome.ok) {
+    // The rules decide and the approved line is said word for word: never a second AI call
+    const d = await withoutExtraLLM(() => processScriptedTurn(sessionId, customerTranscript, dealConfig, undefined, { skipSpeech: true }));
+    d.metrics = { ...d.metrics!, understanding: "rules", aiReason: outcome.reason, combined: true, planMs, speechMs: outcome.ms, speech: "script", speechReason: outcome.reason };
+    console.log(`[beat-controller] combined AI call not used (${outcome.reason}, ${outcome.ms} ms), Beat ${d.metrics.beatBefore} -> ${d.beatId}`);
+    return d;
+  }
+
+  const { header } = outcome;
+  const cls = meaningToClassification(header.meaning, beatExpects, header.option.topics)!;
+  const aiReason = `${header.meaning} (${header.confidence}): ${header.reason}`;
+  const d = await withoutExtraLLM(() =>
+    processScriptedTurn(sessionId, customerTranscript, dealConfig, { ...cls, usedLLM: true, source: "ai", aiReason }, {
+      preset: { draft: header.option.draft, text: outcome.text, speech: outcome.speech, speechReason: outcome.speechReason, early: outcome.early, ms: outcome.ms },
+    })
+  );
+  d.metrics = { ...d.metrics!, combined: true, planMs, classifierMs: 0 };
+  console.log(
+    `[beat-controller] combined AI call: ${aiReason}; speech=${d.metrics.speech} (${d.metrics.speechReason}), ${outcome.ms} ms + plan ${planMs} ms, Beat ${d.metrics.beatBefore} -> ${d.beatId}`
+  );
+  return d;
+}
+
+/** The approved line each possible meaning would lead to, worked out on copies of the call (no AI) */
+async function planReplyOptions(
+  sessionId: string,
+  customerTranscript: string,
+  dealConfig: DealConfig,
+  beatExpects: "statement" | "yes_no" | "open"
+): Promise<ReplyOption[]> {
+  const base = getOrCreateCallState(sessionId, dealConfig);
+  const variants: Array<{ meaning: Meaning; topics: number[] }> = [];
+  for (const m of Object.keys(MEANINGS) as Meaning[]) {
+    if (m === "ending_call") continue;
+    if (m === "coverage_question") for (const g of COVERAGE_TOPIC_GROUPS) variants.push({ meaning: m, topics: g.beats });
+    else variants.push({ meaning: m, topics: [] });
+  }
+  const byDraft = new Map<string, ReplyOption>();
+  for (const v of variants) {
+    const cls = meaningToClassification(v.meaning, beatExpects, v.topics)!;
+    const tmp = `${sessionId}::plan::${v.meaning}:${v.topics.join("-")}:${Math.random().toString(36).slice(2, 8)}`;
+    activeStates.set(tmp, cloneState(base));
+    try {
+      const d = await withoutExtraLLM(
+        () => processScriptedTurn(tmp, customerTranscript, dealConfig, { ...cls, source: "ai" }, { skipSpeech: true }),
+        { quiet: true }
+      );
+      const locked = !shouldSpeakWithAI({
+        intent: d.intent,
+        beatBefore: base.current_beat,
+        beatAfter: d.beatId,
+        beatType: d.beatType,
+        isScriptComplete: d.isScriptComplete,
+        draft: d.textToSpeak,
+      });
+      const key = `${locked}|${d.textToSpeak}`;
+      const existing = byDraft.get(key);
+      if (existing) {
+        if (!existing.meanings.includes(v.meaning)) existing.meanings.push(v.meaning);
+      } else byDraft.set(key, { id: "", meanings: [v.meaning], topics: v.topics, draft: d.textToSpeak, locked });
+    } finally {
+      activeStates.delete(tmp);
+    }
+  }
+  return [...byDraft.values()].map((o, i) => ({ ...o, id: String.fromCharCode(65 + (i % 26)) + (i >= 26 ? String(i) : "") }));
 }
 
 // -----------------------------------------------------------------------------
@@ -2768,7 +2937,8 @@ function syncFreeFromScript(state: CallState): void {
 async function processFreeTurn(
   sessionId: string,
   customerTranscript: string,
-  dealConfig: DealConfig
+  dealConfig: DealConfig,
+  onEarly?: (text: string) => void
 ): Promise<{ decision: ControllerDecision } | { reason: string; ms: number; attempts: number }> {
   const t0 = Date.now();
   const state = getOrCreateCallState(sessionId, dealConfig);
@@ -2799,7 +2969,7 @@ async function processFreeTurn(
       recentMax: freeHistory(state).filter((m) => m.role === "assistant").slice(-2).map((m) => m.content),
     },
     where: callStateNote({ beat: beatBefore, disclosureGiven: Boolean(state.free_disclosure_given), lowestOffered: state.free_lowest_offer }),
-  });
+  }, onEarly);
   if (!outcome.ok) return { reason: outcome.reason, ms: outcome.ms, attempts: outcome.attempts };
 
   const { reply, prices } = outcome;
@@ -2882,11 +3052,20 @@ async function processFreeTurn(
   return { decision };
 }
 
+interface ScriptedOptions {
+  /** say the approved line word for word (no AI wording) */
+  skipSpeech?: boolean;
+  /** the words already produced by a combined Option C call, for the approved line `draft` */
+  preset?: { draft: string; text: string; speech: "ai" | "script"; speechReason: string; early?: string; ms: number };
+  onEarly?: (text: string) => void;
+}
+
 async function processScriptedTurn(
   sessionId: string,
   customerTranscript: string,
   dealConfig = DEFAULT_DEAL_CONFIG,
-  mockClassification?: ClassificationResult
+  mockClassification?: ClassificationResult,
+  sOpts: ScriptedOptions = {}
 ): Promise<ControllerDecision> {
   const t0 = Date.now();
   const stateRef = getOrCreateCallState(sessionId, dealConfig);
@@ -2899,7 +3078,22 @@ async function processScriptedTurn(
   // AI speech (MAX_SPEECH=ai): the approved line chosen above is the draft; the AI says it in Max's own
   // words, and the checker falls back to the draft on anything it adds or drops (src/lib/ai-speech.ts)
   const recentBefore = decision.state.recent_turns ?? [];
-  if (
+  const preset = sOpts.preset;
+  if (preset) {
+    // Combined call: its words were for the approved line it was shown; if the line came out different
+    // after all, the line is said as it is (after any part already spoken)
+    metrics.speechMs = preset.ms;
+    if (preset.speech === "ai" && decision.textToSpeak === preset.draft) {
+      decision.textToSpeak = preset.text;
+      metrics.speech = "ai";
+      metrics.speechReason = "ok";
+    } else {
+      metrics.speech = "script";
+      metrics.speechReason = preset.speech === "ai" ? "the approved line changed" : preset.speechReason;
+      if (preset.early) decision.textToSpeak = `${preset.early} ${decision.textToSpeak}`;
+    }
+  } else if (
+    !sOpts.skipSpeech &&
     shouldSpeakWithAI({
       intent: decision.intent,
       beatBefore,
@@ -2910,25 +3104,29 @@ async function processScriptedTurn(
     })
   ) {
     const tSpeech = Date.now();
-    const spoken = await speakWithAI({
-      customer: customerTranscript,
-      draft: decision.textToSpeak,
-      intent: decision.intent,
-      meaning: metrics.understanding === "ai" ? metrics.aiReason : undefined,
-      recentTurns: recentBefore,
-    });
+    const spoken = await speakWithAI(
+      {
+        customer: customerTranscript,
+        draft: decision.textToSpeak,
+        intent: decision.intent,
+        meaning: metrics.understanding === "ai" ? metrics.aiReason : undefined,
+        recentTurns: recentBefore,
+      },
+      sOpts.onEarly
+    );
     metrics.speech = spoken.source;
     metrics.speechReason = spoken.reason;
     metrics.speechMs = Date.now() - tSpeech;
-    if (spoken.source === "ai") decision.textToSpeak = spoken.text;
+    if (spoken.source === "ai" || spoken.early) decision.textToSpeak = spoken.text;
   }
   decision.state.recent_turns = [...recentBefore, { customer: customerTranscript, max: decision.textToSpeak }].slice(-3);
   if (decision.state.vehicle_disputed) {
     decision.textToSpeak = scrubDisputedVehicle(decision.textToSpeak, decision.state);
-    decision.state.last_spoken_text = metrics.speech === "ai" ? scrubDisputedVehicle(decision.state.last_spoken_text, decision.state) : decision.textToSpeak;
+    // last_spoken_text is the approved line (the rules look at it), whatever words were spoken
+    decision.state.last_spoken_text = scrubDisputedVehicle(decision.state.last_spoken_text, decision.state);
   }
   decision.state.last_said = { script: decision.state.last_spoken_text, said: decision.textToSpeak };
-  if (metrics.speech) {
+  if (metrics.speech && !isQuietRun()) {
     console.log(`[beat-controller] speech=${metrics.speech} (${metrics.speechReason}, ${metrics.speechMs} ms), Beat ${beatBefore} -> ${decision.beatId}`);
   }
   decision.metrics = {
@@ -3172,10 +3370,12 @@ async function runControllerTurn(
   let reportedIntent: ControllerDecision["intent"] = intent;
 
   // understanding=ai means the AI read this reply; rules means the AI-first step was skipped or fell back
-  console.log(
-    `[beat-controller] Turn Intent: "${intent}", Current Beat: ${state.current_beat}, understanding=${metrics.understanding ?? "rules"}` +
-      (metrics.aiReason ? ` (${metrics.aiReason})` : "")
-  );
+  if (!isQuietRun()) {
+    console.log(
+      `[beat-controller] Turn Intent: "${intent}", Current Beat: ${state.current_beat}, understanding=${metrics.understanding ?? "rules"}` +
+        (metrics.aiReason ? ` (${metrics.aiReason})` : "")
+    );
+  }
 
   let textToSpeak = "";
   let beatType: "wait" | "continue" | "stop" = "wait";

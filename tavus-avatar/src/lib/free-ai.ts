@@ -21,6 +21,7 @@
  * script, the facts and the call so far.
  */
 import { addedRisk, numberTokens } from "./ai-speech";
+import { llmTarget, partialJsonString, streamChat, takeLeadSentences } from "./llm-stream";
 
 export const FREE_AI_TIMEOUT_MS = Number(process.env.FREE_AI_TIMEOUT_MS) || 4000;
 export const PRICE_LADDER = [4, 3.5, 3.25, 3] as const;
@@ -184,17 +185,25 @@ export interface GuardResult {
 }
 
 export function guardFreeReply(reply: FreeReply, ctx: GuardContext): GuardResult {
-  const prices = dailyPrices(reply.say);
+  return guardFreeText(reply.say, ctx, Math.max(ctx.beatBefore, reply.beat), true);
+}
+
+/**
+ * The guards on Max's words. `whole` = the complete reply; without it (the first sentences, while the
+ * rest is still being written) only the "says nothing it must not" checks run: the checks that need the
+ * whole reply (length, repeats, "a no gets the next lower price") wait for it.
+ */
+export function guardFreeText(t: string, ctx: GuardContext, beat: number, whole: boolean): GuardResult {
+  const prices = dailyPrices(t);
   const fail = (reason: string): GuardResult => ({ ok: false, reason, prices });
-  const t = reply.say;
   if (/[*#_`{}<>\[\]]|\n\s*[-•]/.test(t)) return fail("formatting");
   const words = t.split(/\s+/).filter(Boolean).length;
-  if (words > MAX_WORDS) return fail(`too long (${words} words)`);
+  if (whole && words > MAX_WORDS) return fail(`too long (${words} words)`);
   if (/\b(json|system prompt|my instructions|the script says|as an ai language model)\b/i.test(t)) return fail("talks about its instructions");
 
   // Prices: approved steps only, only from the price beats, one step at a time
   if (prices.length) {
-    if (Math.max(ctx.beatBefore, reply.beat) < PRICE_BEAT - 1) return fail(`price before Beat ${PRICE_BEAT}`);
+    if (beat < PRICE_BEAT - 1) return fail(`price before Beat ${PRICE_BEAT}`);
     const floor = lowestAllowedPrice(ctx.lowestOffered);
     for (const p of prices) {
       if (!(PRICE_LADDER as readonly number[]).includes(p)) return fail(`unapproved price $${p}`);
@@ -207,14 +216,14 @@ export function guardFreeReply(reply: FreeReply, ctx: GuardContext): GuardResult
   if (ctx.refusedPrice) {
     if (/\b(moving forward with|so to confirm|to confirm,? we)\b/i.test(t)) return fail("confirmed the package right after a refusal");
     const current = ctx.lowestOffered ?? PRICE_LADDER[0];
-    if (current > PRICE_LADDER[PRICE_LADDER.length - 1] && !prices.some((p) => p < current)) {
+    if (whole && current > PRICE_LADDER[PRICE_LADDER.length - 1] && !prices.some((p) => p < current)) {
       return fail(`a no at $${current} a day must get the next lower price, $${lowestAllowedPrice(current)} a day`);
     }
   }
 
   // Never the same line again word for word (simulated batch 2026-11-21: three loops)
   const key = loopKey(t);
-  if (key.length > 20 && (ctx.recentMax ?? []).some((m) => loopKey(m) === key)) return fail("repeats what Max just said");
+  if (whole && key.length > 20 && (ctx.recentMax ?? []).some((m) => loopKey(m) === key)) return fail("repeats what Max just said");
 
   // Numbers and claims the script and facts do not make (the customer's own numbers are fine)
   const allowed = new Set(numberTokens(`${ctx.corpus} ${ctx.customerSaid ?? ""} four three fifty twenty five`));
@@ -232,59 +241,75 @@ export function guardFreeReply(reply: FreeReply, ctx: GuardContext): GuardResult
 // The call
 // -----------------------------------------------------------------------------
 export type FreeOutcome =
-  | { ok: true; reply: FreeReply; prices: number[]; attempts: number; ms: number; retryReason?: string }
-  | { ok: false; reason: string; attempts: number; ms: number };
+  | { ok: true; reply: FreeReply; prices: number[]; attempts: number; ms: number; retryReason?: string; early?: string }
+  | { ok: false; reason: string; attempts: number; ms: number; early?: string };
 
-/** Ask the AI for Max's next reply; one retry with the reason if a guard rejects it. */
+/**
+ * Ask the AI for Max's next reply; one retry with the reason if a guard rejects it. Streams: `onEarly`
+ * gets the first sentences of "say" once they pass the guards that can run on part of a reply. Once
+ * something was spoken there is no retry: a rejected whole reply goes to the script, after that part.
+ */
 export async function runFreeTurn(
   args: { system: string; history: ChatMessage[]; customer: string; guard: GuardContext; where?: string },
+  onEarly?: (text: string) => void,
   fetchImpl: typeof fetch = fetch
 ): Promise<FreeOutcome> {
   const t0 = Date.now();
-  const apiKey = process.env.XAI_API_KEY?.trim() || process.env.OPENAI_API_KEY?.trim();
-  if (!apiKey) return { ok: false, reason: "no AI key", attempts: 0, ms: 0 };
-  const isXai = Boolean(process.env.XAI_API_KEY?.trim());
-  const endpoint = isXai ? "https://api.x.ai/v1/chat/completions" : "https://api.openai.com/v1/chat/completions";
-  const model = process.env.FREE_AI_MODEL?.trim() || process.env.GROK_MODEL?.trim() || (isXai ? "grok-4.20-0309-non-reasoning" : "gpt-4o-mini");
+  const target = llmTarget(process.env.FREE_AI_MODEL);
+  if (!target) return { ok: false, reason: "no AI key", attempts: 0, ms: 0 };
 
   let note: string | undefined;
   let lastReason = "";
+  let early: string | undefined;
   for (let attempt = 1; attempt <= 2; attempt++) {
     const remaining = FREE_AI_TIMEOUT_MS - (Date.now() - t0);
     if (remaining < 300) return { ok: false, reason: lastReason ? `${lastReason}; no time to retry` : `timeout ${FREE_AI_TIMEOUT_MS}ms`, attempts: attempt - 1, ms: Date.now() - t0 };
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), remaining);
+    let raw = "";
     try {
-      const res = await fetchImpl(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-        body: JSON.stringify({
-          model,
+      const stream = streamChat(
+        {
+          target,
           temperature: 0.6,
-          max_tokens: 450,
+          maxTokens: 450,
           // JSON mode: the reply is the JSON object, not sentences copied from the history's style
-          response_format: { type: "json_object" },
+          json: true,
           messages: buildFreeMessages(args.system, args.history, args.customer, note, args.where),
-        }),
-        signal: controller.signal,
-      });
-      if (!res.ok) return { ok: false, reason: `http ${res.status}`, attempts: attempt, ms: Date.now() - t0 };
-      const data = await res.json();
-      const raw: string = data.choices?.[0]?.message?.content ?? "";
-      const reply = parseFreeReplyOrText(raw, args.guard.beatBefore);
-      if (!reply) {
-        lastReason = "not valid JSON";
-      } else {
-        const g = guardFreeReply(reply, args.guard);
-        if (g.ok) return { ok: true, reply, prices: g.prices, attempts: attempt, ms: Date.now() - t0, ...(lastReason ? { retryReason: lastReason } : {}) };
-        lastReason = `rejected: ${g.reason}`;
+          signal: controller.signal,
+        },
+        fetchImpl
+      );
+      for await (const delta of stream) {
+        raw += delta;
+        if (onEarly && !early) {
+          const say = partialJsonString(raw);
+          const lead = say ? takeLeadSentences(say.text) : null;
+          if (lead && guardFreeText(lead.lead, args.guard, args.guard.beatBefore, false).ok) {
+            early = lead.lead;
+            onEarly(early);
+          }
+        }
       }
-      note = `your last reply was not used (${lastReason}). Reply again, following the rules, as JSON only.`;
-    } catch {
-      return { ok: false, reason: controller.signal.aborted ? `timeout ${FREE_AI_TIMEOUT_MS}ms` : "error", attempts: attempt, ms: Date.now() - t0 };
+    } catch (err) {
+      const reason = controller.signal.aborted ? `timeout ${FREE_AI_TIMEOUT_MS}ms` : /^http \d+/.test(String((err as Error)?.message)) ? (err as Error).message : "error";
+      return { ok: false, reason, attempts: attempt, ms: Date.now() - t0, early };
     } finally {
       clearTimeout(timer);
     }
+    const reply = parseFreeReplyOrText(raw, args.guard.beatBefore);
+    if (!reply) {
+      lastReason = "not valid JSON";
+    } else {
+      const g = guardFreeReply(reply, args.guard);
+      if (g.ok && (!early || reply.say.startsWith(early))) {
+        return { ok: true, reply, prices: g.prices, attempts: attempt, ms: Date.now() - t0, early, ...(lastReason ? { retryReason: lastReason } : {}) };
+      }
+      lastReason = `rejected: ${g.ok ? "early part changed" : g.reason}`;
+    }
+    // Part of this reply was already spoken: no second attempt, the script carries on after it
+    if (early) return { ok: false, reason: lastReason, attempts: attempt, ms: Date.now() - t0, early };
+    note = `your last reply was not used (${lastReason}). Reply again, following the rules, as JSON only.`;
   }
   return { ok: false, reason: lastReason, attempts: 2, ms: Date.now() - t0 };
 }

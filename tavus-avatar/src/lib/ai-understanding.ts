@@ -109,6 +109,23 @@ const MEANING_TO_INTENT: Record<Exclude<Meaning, "story_or_comment" | "ending_ca
 
 // Which beat to recap for a coverage question (same table as the rule-based classifier's prompt)
 const COVERAGE_TOPIC_BEATS = [6, 8, 9, 10, 13, 14, 15, 16, 17, 18];
+/** The coverage topics a coverage question can be about, as the prompt groups them */
+export const COVERAGE_TOPIC_GROUPS: Array<{ label: string; beats: number[] }> = [
+  { label: "warranty overview", beats: [6] },
+  { label: "wear and tear", beats: [8, 9, 10] },
+  { label: "parts and labor costs", beats: [13, 14, 15] },
+  { label: "bumper to bumper", beats: [16] },
+  { label: "tires and wheels", beats: [17] },
+  { label: "maintenance", beats: [18] },
+];
+
+/** The controller's classification for a meaning (null for "ending_call": the rules' call alone) */
+export function meaningToClassification(meaning: Meaning, beatExpects: UnderstandingContext["beatExpects"], topics: number[] = []): ClassificationResult | null {
+  if (meaning === "ending_call") return null;
+  const intent: ClassifierIntent =
+    meaning === "story_or_comment" ? (beatExpects === "statement" ? "agree" : "acknowledge") : MEANING_TO_INTENT[meaning];
+  return { intent, topic_beat_ids: intent === "question_in_script" ? topics.filter((n) => COVERAGE_TOPIC_BEATS.includes(n)) : [] };
+}
 
 export interface UnderstandingContext {
   transcript: string;

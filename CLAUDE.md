@@ -45,6 +45,16 @@ Next.js app (`tavus-avatar/`) for an AWS Summit Sydney booth demo. Real-time con
   - `MAX_SPEECH=ai` - Option C: the script picks the approved line, the AI says it in Max's own words, a
     checker falls back to the approved line on any new number, price, promise or dropped fact
     (`src/lib/ai-speech.ts`). Beat 1 and Beats 22-25 stay word for word.
+  - With both of the above on, a turn the AI has to read uses ONE AI call (`src/lib/ai-reply.ts`,
+    `combinedTurn` in `beat-controller.ts`): the controller first works out, without AI, the approved line
+    every possible meaning leads to; the AI picks the meaning and words that line. The knowledge base and
+    the backup classifier make no AI calls inside that turn (`src/lib/llm-context.ts`).
+  - `MAX_STREAM=on` - streaming: `/api/chat/grok` answers the call screen's turns as NDJSON,
+    `{"type":"early"}` with Max's first sentences once they pass the "adds nothing new" checks, then
+    `{"type":"final"}` (its text starts with the early part). The call screen speaks the early part at
+    once and the rest when it ends; the "was it heard" commit covers the whole reply. If the whole reply
+    then fails a check, the approved line (or the script, in free mode) follows the early part. Works with
+    Option C and free mode; off = one JSON reply as before. Not yet tried on a live HeyGen call.
   - `MAX_MODE=free` - Option D: the AI runs the whole call from the full script and knowledge base
     (`src/lib/free-ai.ts`, `processFreeTurn` in `beat-controller.ts`). Code still enforces the price
     ladder ($4 → $3.50 → $3.25 → $3, one step at a time, only from Beat 22), no invented figures or risky

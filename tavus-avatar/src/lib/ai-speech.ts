@@ -26,6 +26,7 @@
 import type { ClassifierIntent } from "./beat-controller";
 import { approvedFacts } from "./grounded-answer";
 import { UNKNOWN_QUESTION_LINE } from "./max-lines";
+import { llmTarget, streamChat, takeLeadSentences, tidy } from "./llm-stream";
 
 export const AI_SPEECH_TIMEOUT_MS = Number(process.env.AI_SPEECH_TIMEOUT_MS) || 2500;
 export const AI_SPEECH_BEATS = { from: 2, to: 21 };
@@ -143,39 +144,38 @@ export interface CheckResult {
   reason?: string;
 }
 
-export function checkGenerated(text: string, draft: string, factsText = ""): CheckResult {
+/**
+ * "Adds nothing": formatting, numbers, risky claims and car brands the approved text does not have.
+ * Safe to run on the first sentence of a reply while the rest is still being written (streaming).
+ */
+export function checkAdditions(text: string, draft: string, factsText = ""): CheckResult {
   const fail = (reason: string): CheckResult => ({ ok: false, reason });
   const t = text.trim();
   if (!t) return fail("empty");
   if (/[*#_`{}<>\[\]]|^["']|\n\s*[-•]/.test(t)) return fail("formatting");
   if (/^(max|assistant)\s*:/i.test(t)) return fail("speaker label");
+  const allowedSource = `${draft} ${factsText}`;
+  const allowedNums = new Set(numberTokens(allowedSource));
+  for (const n of numberTokens(t)) if (!allowedNums.has(n)) return fail(`new number "${n}"`);
+  const risk = addedRisk(t, allowedSource);
+  if (risk) return fail(risk);
+  return { ok: true };
+}
+
+export function checkGenerated(text: string, draft: string, factsText = ""): CheckResult {
+  const fail = (reason: string): CheckResult => ({ ok: false, reason });
+  const t = text.trim();
+  const added = checkAdditions(t, draft, factsText);
+  if (!added.ok) return added;
 
   const genWords = words(t).length;
   const draftWords = words(draft).length;
   if (genWords > Math.min(170, draftWords + 40)) return fail(`too long (${genWords} words)`);
-
-  const allowedSource = `${draft} ${factsText}`;
-  const allowedNorm = norm(allowedSource);
   const genNorm = norm(t);
 
-  // Numbers: nothing new, nothing dropped
-  const allowedNums = new Set(numberTokens(allowedSource));
-  for (const n of numberTokens(t)) if (!allowedNums.has(n)) return fail(`new number "${n}"`);
+  // Numbers: nothing dropped
   const genNums = new Set(numberTokens(t));
   for (const n of numberTokens(draft)) if (!genNums.has(n)) return fail(`dropped number "${n}"`);
-
-  // Risky claims the approved text does not make
-  const low = t.toLowerCase();
-  const allowedLow = allowedSource.toLowerCase();
-  for (const [label, re] of RISKY) {
-    const plain = label === "claims to be human" || label === "everything covered";
-    const gen = plain ? genNorm : low;
-    const src = plain ? allowedNorm : allowedLow;
-    if (re.test(gen) && !re.test(src)) return fail(`adds ${label}`);
-  }
-
-  // No other car brand
-  for (const m of low.match(MAKES_ALL) ?? []) if (!allowedLow.includes(m)) return fail(`names ${m}`);
 
   // Coverage terms the draft names are still there
   const draftNorm = norm(draft);
@@ -241,49 +241,66 @@ export function buildSpeechUserMessage(ctx: SpeechContext, facts: string): strin
 }
 
 export interface SpeechResult {
-  /** what Max says: the AI's words, or the approved draft */
+  /** what Max says: the AI's words, or the approved draft (after any part already spoken) */
   text: string;
   source: "ai" | "script";
   /** why the draft was kept (rejected / timeout / error), or "ok" */
   reason: string;
+  /** streaming: the first sentences already sent for speaking; `text` starts with them */
+  early?: string;
 }
 
-/** Ask the AI to say the draft in Max's own words. Any problem: the draft, unchanged. */
-export async function speakWithAI(ctx: SpeechContext, fetchImpl: typeof fetch = fetch): Promise<SpeechResult> {
-  const keep = (reason: string): SpeechResult => ({ text: ctx.draft, source: "script", reason });
-  const apiKey = process.env.XAI_API_KEY?.trim() || process.env.OPENAI_API_KEY?.trim();
-  if (!apiKey) return keep("no AI key");
-  const isXai = Boolean(process.env.XAI_API_KEY?.trim());
-  const endpoint = isXai ? "https://api.x.ai/v1/chat/completions" : "https://api.openai.com/v1/chat/completions";
-  const model = process.env.GROK_MODEL?.trim() || (isXai ? "grok-4.20-0309-non-reasoning" : "gpt-4o-mini");
+/**
+ * Ask the AI to say the draft in Max's own words. Streams: `onEarly` gets the first sentences once they
+ * pass the "adds nothing new" check, and the rest is used only if the whole reply passes. Any problem:
+ * the draft, unchanged (after the early part, if one was already spoken).
+ */
+export async function speakWithAI(
+  ctx: SpeechContext,
+  onEarly?: (text: string) => void,
+  fetchImpl: typeof fetch = fetch
+): Promise<SpeechResult> {
+  let early: string | undefined;
+  const keep = (reason: string): SpeechResult => ({ text: early ? `${early} ${ctx.draft}` : ctx.draft, source: "script", reason, early });
+  const target = llmTarget();
+  if (!target) return keep("no AI key");
   const facts = factsFor(ctx);
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), AI_SPEECH_TIMEOUT_MS);
+  let raw = "";
   try {
-    const res = await fetchImpl(endpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
-      body: JSON.stringify({
-        model,
+    const stream = streamChat(
+      {
+        target,
         temperature: 0.7,
-        max_tokens: 320,
+        maxTokens: 320,
         messages: [
           { role: "system", content: buildSpeechSystemPrompt() },
           { role: "user", content: buildSpeechUserMessage(ctx, facts) },
         ],
-      }),
-      signal: controller.signal,
-    });
-    if (!res.ok) return keep(`http ${res.status}`);
-    const data = await res.json();
-    const raw: string = (data.choices?.[0]?.message?.content ?? "").trim().replace(/^"([\s\S]*)"$/, "$1").replace(/\s+/g, " ");
-    const check = checkGenerated(raw, ctx.draft, facts);
-    if (!check.ok) return keep(`rejected: ${check.reason}`);
-    return { text: raw, source: "ai", reason: "ok" };
-  } catch {
-    return keep(controller.signal.aborted ? `timeout ${AI_SPEECH_TIMEOUT_MS}ms` : "error");
+        signal: controller.signal,
+      },
+      fetchImpl
+    );
+    for await (const delta of stream) {
+      raw += delta;
+      if (onEarly && !early) {
+        const lead = takeLeadSentences(raw.replace(/^\s*"/, ""));
+        if (lead && checkAdditions(lead.lead, ctx.draft, facts).ok) {
+          early = lead.lead;
+          onEarly(early);
+        }
+      }
+    }
+  } catch (err) {
+    return keep(controller.signal.aborted ? `timeout ${AI_SPEECH_TIMEOUT_MS}ms` : /^http \d+/.test(String((err as Error)?.message)) ? (err as Error).message : "error");
   } finally {
     clearTimeout(timer);
   }
+  const text = tidy(raw.trim().replace(/^"([\s\S]*)"$/, "$1"));
+  const check = checkGenerated(text, ctx.draft, facts);
+  if (!check.ok) return keep(`rejected: ${check.reason}`);
+  if (early && !text.startsWith(early)) return keep("rejected: early part changed");
+  return { text, source: "ai", reason: "ok", early };
 }

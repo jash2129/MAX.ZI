@@ -414,7 +414,11 @@ export function LiveAvatarDemo() {
   const turnControllerRef = useRef<TurnController | null>(null);
 
   // Two-phase turns: the server only keeps a beat once we confirm Max's reply was heard
-  const speakingTurnRef = useRef<{ turnId: number } | null>(null);
+  // offset/share: a streamed reply's later part covers this share of the whole, after `offset`
+  const speakingTurnRef = useRef<{ turnId: number; offset?: number; share?: number } | null>(null);
+  // Streaming (MAX_STREAM=on on the server): resolves when the part Max is speaking ends, so the rest
+  // of the reply follows it instead of cutting it off
+  const lineEndRef = useRef<((end: { reason: string; fraction: number }) => void) | null>(null);
   const commitInFlightRef = useRef<Promise<void>>(Promise.resolve());
   const sendCommit = (turnId: number, delivered: boolean, spokenFraction: number, reason: string) => {
     logTurnEvent({ ts: new Date().toISOString(), event: delivered ? "turn_delivered" : "turn_not_delivered", turnId, spokenFraction, reason });
@@ -452,11 +456,18 @@ export function LiveAvatarDemo() {
         if (speaking) echoTimelineRef.current.maxStarted();
         else echoTimelineRef.current.maxStopped();
         if (!speaking) {
+          const lineEnd = lineEndRef.current;
+          if (lineEnd) {
+            lineEndRef.current = null;
+            lineEnd({ reason, fraction: voiceRef.current?.tracker.spokenFraction() ?? 0 });
+          }
           // Did the customer hear the reply for this turn? Finished naturally, or cut late enough.
           const turn = speakingTurnRef.current;
           if (turn) {
             speakingTurnRef.current = null;
-            const fraction = voiceRef.current?.tracker.spokenFraction() ?? 0;
+            const part = voiceRef.current?.tracker.spokenFraction() ?? 0;
+            // A streamed reply's later part: how much of the WHOLE reply was heard
+            const fraction = (turn.offset ?? 0) + (turn.share ?? 1) * part;
             const delivered = reason === "stop_event" || reason === "watchdog" || fraction >= 0.8;
             sendCommit(turn.turnId, delivered, Math.round(fraction * 100) / 100, reason);
           }
@@ -583,6 +594,8 @@ export function LiveAvatarDemo() {
             sessionId: sessionIdRef.current || sessionId || "live_session",
             clientBeatId: beatBefore,
             turnId: meta.turnId,
+            // The server streams only when MAX_STREAM=on; otherwise it answers as before
+            stream: true,
           }),
         });
 
@@ -591,7 +604,55 @@ export function LiveAvatarDemo() {
           throw new Error(errData.error || `Grok error (${res.status})`);
         }
 
-        const data = await res.json();
+        // Streamed reply: {"type":"early"} = Max's first sentences, spoken right away; {"type":"final"} =
+        // the whole reply (its text starts with the early part), handled as before
+        let data: any = null;
+        let earlyText = "";
+        let earlyEnd: Promise<{ reason: string; fraction: number }> | null = null;
+        if ((res.headers.get("content-type") ?? "").includes("ndjson") && res.body) {
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder();
+          let buffered = "";
+          readLoop: for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffered += decoder.decode(value, { stream: true });
+            let nl: number;
+            while ((nl = buffered.indexOf("\n")) >= 0) {
+              const line = buffered.slice(0, nl).trim();
+              buffered = buffered.slice(nl + 1);
+              if (!line) continue;
+              let msg: any;
+              try {
+                msg = JSON.parse(line);
+              } catch {
+                continue;
+              }
+              if (msg.type === "early" && !earlyText && msg.text) {
+                // Superseded already: never start speaking it (the final reply is dropped below too)
+                if (meta.turnId && !turnControllerRef.current?.isLatestTurn(meta.turnId)) continue;
+                earlyText = String(msg.text);
+                logTurnEvent({ ts: new Date().toISOString(), event: "reply_early", turnId: meta.turnId, serverMs: msg.at, transcript: earlyText });
+                if (currentTurnTimingRef.current) {
+                  currentTurnTimingRef.current.controller_decision = Date.now();
+                  currentTurnTimingRef.current.avatarText = earlyText;
+                }
+                setCurrentReplicaText(earlyText);
+                earlyEnd = new Promise((resolve) => {
+                  lineEndRef.current = resolve;
+                });
+                speakingTurnRef.current = null;
+                void speakWithAvatar(earlyText);
+              } else if (msg.type === "final") {
+                data = msg;
+                break readLoop;
+              }
+            }
+          }
+          if (!data) throw new Error("the reply stream ended without a reply");
+        } else {
+          data = await res.json();
+        }
 
         // A newer turn was dispatched while this one was in flight: never speak this reply. Tell the
         // server it was not delivered, so it rolls the beat back instead of silently skipping it.
@@ -626,10 +687,10 @@ export function LiveAvatarDemo() {
         };
         logTurnEvent(turnLog);
 
-        // Record controller decision timestamp
+        // Record controller decision timestamp (a streamed reply already set it when its first part came)
         const decisionTime = Date.now();
         if (currentTurnTimingRef.current) {
-          currentTurnTimingRef.current.controller_decision = decisionTime;
+          if (!earlyText) currentTurnTimingRef.current.controller_decision = decisionTime;
           currentTurnTimingRef.current.avatarText = assistantText;
           currentTurnTimingRef.current.controller = data.metrics;
           currentTurnTimingRef.current.chat_route_start = data.timing?.routeStart;
@@ -693,6 +754,16 @@ export function LiveAvatarDemo() {
           }
         }
 
+        // A streamed turn's timing entry may already be logged (at the early part's first audio):
+        // give it the whole reply and the controller's numbers
+        if (earlyText) {
+          const logged = timingLogsRef.current.find((t) => t.turnId === turnId);
+          if (logged) {
+            logged.avatarText = assistantText;
+            logged.controller = data.metrics;
+          }
+        }
+
         if (assistantText) {
           conversationHistoryRef.current = [
             ...conversationHistoryRef.current,
@@ -700,8 +771,27 @@ export function LiveAvatarDemo() {
           ];
           setMessages([...conversationHistoryRef.current]);
           setCurrentReplicaText(assistantText);
-          speakingTurnRef.current = meta.turnId ? { turnId: meta.turnId } : null;
-          await speakWithAvatar(assistantText);
+          if (earlyText && earlyEnd && assistantText.startsWith(earlyText)) {
+            // The first part is playing: the rest follows once it ends, unless the customer cut in
+            const rest = assistantText.slice(earlyText.length).trim();
+            const firstShare = earlyText.length / assistantText.length;
+            const end = await earlyEnd;
+            const heard = end.reason === "stop_event" || end.reason === "watchdog" || end.fraction >= 0.8;
+            const round = (x: number) => Math.round(x * 100) / 100;
+            if (!heard) {
+              if (meta.turnId) sendCommit(meta.turnId, false, round(end.fraction * firstShare), `early_part_${end.reason}`);
+            } else if (!rest) {
+              if (meta.turnId) sendCommit(meta.turnId, true, 1, end.reason);
+            } else if (meta.turnId && !turnControllerRef.current?.isLatestTurn(meta.turnId)) {
+              sendCommit(meta.turnId, false, round(firstShare), "superseded_mid_reply");
+            } else {
+              speakingTurnRef.current = meta.turnId ? { turnId: meta.turnId, offset: firstShare, share: 1 - firstShare } : null;
+              await speakWithAvatar(rest);
+            }
+          } else {
+            speakingTurnRef.current = meta.turnId ? { turnId: meta.turnId } : null;
+            await speakWithAvatar(assistantText);
+          }
         }
       } catch (err: any) {
         console.error("[chat/grok error]:", err);
