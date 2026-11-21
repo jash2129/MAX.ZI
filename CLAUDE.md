@@ -38,6 +38,19 @@ Next.js app (`tavus-avatar/`) for an AWS Summit Sydney booth demo. Real-time con
 - `NEXT_PUBLIC_STT_ENGINE` - optional; `webspeech` turns Deepgram off for every call (`?stt=webspeech` /
   `?stt=deepgram` in the URL overrides it per call). It is built into the client bundle: change it, then
   rebuild / redeploy.
+- Max's AI switches (all off by default; each needs `XAI_API_KEY` or `OPENAI_API_KEY`, and a redeploy on
+  Vercel; `/api/health` shows `mode`, `speech` and `understanding`):
+  - `MAX_UNDERSTANDING=ai` - the AI reads longer replies at Beats 2-21 and picks what the customer meant
+    from a fixed menu (`src/lib/ai-understanding.ts`); the script still chooses the words.
+  - `MAX_SPEECH=ai` - Option C: the script picks the approved line, the AI says it in Max's own words, a
+    checker falls back to the approved line on any new number, price, promise or dropped fact
+    (`src/lib/ai-speech.ts`). Beat 1 and Beats 22-25 stay word for word.
+  - `MAX_MODE=free` - Option D: the AI runs the whole call from the full script and knowledge base
+    (`src/lib/free-ai.ts`, `processFreeTurn` in `beat-controller.ts`). Code still enforces the price
+    ladder ($4 → $3.50 → $3.25 → $3, one step at a time, only from Beat 22), no invented figures or risky
+    claims, and the word-for-word recording disclosure; a reply that fails twice, times out
+    (`FREE_AI_TIMEOUT_MS`, default 4 s) or errors is taken by the scripted controller for that turn.
+    Overrides the other two switches. Not approved by TXM for real customers.
 - `DEMO_API_TOKEN` - gates every `/api/*` route (except `/api/auth`) behind a shared login token, checked in `src/proxy.ts`. Unset → auth is skipped in dev, but **fails closed with 503** if `NODE_ENV=production` and it's still unset — a missing token in production means the deployment is misconfigured, not that auth should be silently disabled. Required for any deployment reachable outside your own machine.
 
 ## Digital Finance Manager event (`EVENT_CONFIG=digital-finance-manager`)

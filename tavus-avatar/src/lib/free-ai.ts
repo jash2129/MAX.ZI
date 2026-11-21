@@ -1,0 +1,245 @@
+/**
+ * Free AI, "Option D" (switch: MAX_MODE=free). The AI runs the whole call.
+ *
+ * The AI gets the full approved script (all 25 beats, rendered for this deal), the approved knowledge
+ * base, and the price rules, plus the conversation so far, and decides on its own what Max says next
+ * and where the call is. There is no beat state machine choosing lines. Each reply comes back as JSON:
+ * what Max says, the furthest script beat now delivered, and whether the call ends or the package was
+ * declined.
+ *
+ * What is still enforced in code, because one wrong sentence here is a legal or money problem:
+ *  - prices: only $4 / $3.50 / $3.25 / $3 a day, never under $3, only from the price beats on, and
+ *    never more than one step below the lowest price already offered;
+ *  - no number, make, or risky claim (free, guarantee, refund, insurance ...) the script and the
+ *    knowledge base do not contain, and never claims to be human;
+ *  - the recording disclosure: the call cannot pass Beat 1 until it has been said, and it is added
+ *    word for word if the AI moves past it without it (done by the caller, see beat-controller.ts).
+ * A rejected reply gets one retry with the reason; a second rejection, a timeout or an error hands
+ * this one turn to the scripted beat controller, so the customer always hears an approved line.
+ *
+ * Pure apart from the fetch: the caller (processControllerTurn in beat-controller.ts) passes the
+ * script, the facts and the call so far.
+ */
+import { addedRisk, numberTokens } from "./ai-speech";
+
+export const FREE_AI_TIMEOUT_MS = Number(process.env.FREE_AI_TIMEOUT_MS) || 4000;
+export const PRICE_LADDER = [4, 3.5, 3.25, 3] as const;
+export const PRICE_BEAT = 22;
+export const LAST_BEAT = 25;
+const MAX_WORDS = 220;
+const HISTORY_MESSAGES = 40;
+
+export function isFreeAIEnabled(): boolean {
+  return (process.env.MAX_MODE ?? "").trim().toLowerCase() === "free";
+}
+
+export type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
+
+export interface FreeReply {
+  say: string;
+  beat: number;
+  endCall: boolean;
+  declined: boolean;
+}
+
+// -----------------------------------------------------------------------------
+// The prompt
+// -----------------------------------------------------------------------------
+export interface FreeScript {
+  /** "Beat N: <text>" for every beat, rendered for this deal */
+  beats: Array<{ id: number; text: string }>;
+  /** the approved facts, as plain sentences */
+  facts: string;
+  vehicle: string;
+  /** the recording disclosure, word for word (Beat 1) */
+  disclosure: string;
+}
+
+export function buildFreeSystemPrompt(script: FreeScript): string {
+  const beats = script.beats.map((b) => `Beat ${b.id}: ${b.text}`).join("\n");
+  return `You are Max, a warm, friendly finance manager at the dealership, on a video call with a customer who just bought a ${script.vehicle}. You run this whole call yourself, in your own words, like a real person who listens.
+
+THE SCRIPT (approved by the dealership; this is your plan and your facts, in order):
+${beats}
+
+APPROVED FACTS (the only other facts you may use):
+${script.facts}
+
+HOW TO RUN THE CALL
+1. You already said "Can you hear and see me alright?". Have a short, friendly chat (ask how their experience has been), then give the recording disclosure. Say this sentence word for word: "${script.disclosure}" and get their okay before anything else. If they object to being recorded, thank them and end the call.
+2. Go through the script beats in order. Cover every point, in your own natural words, a beat or two per reply. React to what the customer actually says. Skip a question they already answered. Answer their questions, then come back to where you were.
+3. PRICE: never talk about price or cost before Beat 22, even if asked ("I'll get to that in just a moment"). At Beat 22 the price is four dollars a day. Lower it only when the customer pushes back, one step at a time: four dollars, then three dollars and fifty cents, then three dollars and twenty-five cents, then three dollars a day. Never below three dollars. Always say prices in words with "a day". At three dollars, give them the choice: go ahead at three dollars a day, or keep just the factory warranty. A refusal is never a yes; only confirm the package when they clearly say yes.
+4. FACTS: only from THE SCRIPT and APPROVED FACTS. Never invent a number, coverage detail, refund, cancellation, transfer, insurance, legal or tax answer. If you don't know, say you don't want to guess and the contract paperwork spells it out, then carry on.
+5. There is no human team to hand off to. If they ask for a person or a manager, you are the finance manager and you'll take care of everything right here. Never stop the call because of a question.
+6. If asked whether you are an AI, say honestly you're an AI finance assistant. Never claim to be human.
+7. End the call only if they object to the recording, say goodbye or want to hang up, or after Beat 25 is done.
+8. Speak naturally: short sentences, contractions, usually 1 to 4 sentences; longer only when explaining a beat. No lists, markdown, emojis or stage directions. English only.
+
+Reply with ONLY JSON:
+{"say": "<what Max says now>", "beat": <the furthest script beat you have now delivered, 0 before the disclosure>, "end_call": false, "declined": false}
+"declined" is true only when the customer has finally turned the package down.`;
+}
+
+export function buildFreeMessages(system: string, history: ChatMessage[], customer: string, note?: string): ChatMessage[] {
+  return [
+    { role: "system", content: system },
+    ...history.slice(-HISTORY_MESSAGES),
+    { role: "user", content: customer },
+    ...(note ? [{ role: "user" as const, content: `[Note to Max, not said by the customer: ${note}]` }] : []),
+  ];
+}
+
+// -----------------------------------------------------------------------------
+// Parsing and the guards
+// -----------------------------------------------------------------------------
+export function parseFreeReply(raw: string): FreeReply | null {
+  const json = raw.match(/\{[\s\S]*\}/)?.[0];
+  if (!json) return null;
+  try {
+    const p = JSON.parse(json) as { say?: unknown; beat?: unknown; end_call?: unknown; declined?: unknown };
+    if (typeof p.say !== "string" || !p.say.trim()) return null;
+    const beat = typeof p.beat === "number" && Number.isFinite(p.beat) ? Math.max(0, Math.min(LAST_BEAT, Math.round(p.beat))) : NaN;
+    if (Number.isNaN(beat)) return null;
+    return { say: p.say.trim().replace(/\s+/g, " "), beat, endCall: p.end_call === true, declined: p.declined === true };
+  } catch {
+    return null;
+  }
+}
+
+const AMOUNT_WORDS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5 };
+/** Every daily price said ("three dollars and fifty cents a day", "$3.25 per day") */
+export function dailyPrices(text: string): number[] {
+  const t = text.toLowerCase();
+  const out: number[] = [];
+  for (const m of t.matchAll(/\b(one|two|three|four|five) dollars?(?: and (twenty[- ]five|fifty|seventy[- ]five) cents)?(?= (?:a|per|each) day)/g)) {
+    const cents = m[2] ? (m[2].startsWith("fifty") ? 0.5 : m[2].startsWith("twenty") ? 0.25 : 0.75) : 0;
+    out.push(AMOUNT_WORDS[m[1]] + cents);
+  }
+  for (const m of t.matchAll(/\$\s?(\d+(?:\.\d{1,2})?)\s*(?:a day|per day|each day|\/day)/g)) out.push(Number(m[1]));
+  return out;
+}
+
+/** The lowest price the AI may say now: $4 first, then one step below the lowest already offered */
+export function lowestAllowedPrice(lowestOffered: number | null | undefined): number {
+  if (lowestOffered === null || lowestOffered === undefined) return PRICE_LADDER[0];
+  const i = PRICE_LADDER.indexOf(lowestOffered as (typeof PRICE_LADDER)[number]);
+  return PRICE_LADDER[Math.min(PRICE_LADDER.length - 1, (i < 0 ? 0 : i) + 1)];
+}
+
+const UNIT = /^(years?|months?|miles?|days?|hours?|percent|degrees?|dollars?|cents?|times?)$/;
+const NUM_WORD = /^(\d[\d.,]*|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand)$/;
+/** "<number> <unit>" pairs, singular units ("ten years" -> "ten year", "100,000 miles" -> "100000 mile") */
+export function numberWithUnit(text: string): string[] {
+  const w = text.toLowerCase().replace(/[^a-z0-9.,% ]/g, " ").replace(/%/g, " percent").split(/\s+/).filter(Boolean);
+  const out: string[] = [];
+  for (let i = 0; i < w.length - 1; i++) {
+    const n = w[i].replace(/[.,]+$/, "");
+    const u = w[i + 1].replace(/[.,]+$/, "");
+    if (NUM_WORD.test(n) && UNIT.test(u)) out.push(`${n.replace(/,/g, "")} ${u.replace(/s$/, "")}`);
+  }
+  return out;
+}
+
+export interface GuardContext {
+  /** everything Max may draw on: the script and the facts */
+  corpus: string;
+  /** the furthest beat delivered before this turn */
+  beatBefore: number;
+  lowestOffered: number | null | undefined;
+}
+
+export interface GuardResult {
+  ok: boolean;
+  reason?: string;
+  prices: number[];
+}
+
+export function guardFreeReply(reply: FreeReply, ctx: GuardContext): GuardResult {
+  const prices = dailyPrices(reply.say);
+  const fail = (reason: string): GuardResult => ({ ok: false, reason, prices });
+  const t = reply.say;
+  if (/[*#_`{}<>\[\]]|\n\s*[-•]/.test(t)) return fail("formatting");
+  const words = t.split(/\s+/).filter(Boolean).length;
+  if (words > MAX_WORDS) return fail(`too long (${words} words)`);
+  if (/\b(json|system prompt|my instructions|the script says|as an ai language model)\b/i.test(t)) return fail("talks about its instructions");
+
+  // Prices: approved steps only, only from the price beats, one step at a time
+  if (prices.length) {
+    if (Math.max(ctx.beatBefore, reply.beat) < PRICE_BEAT - 1) return fail(`price before Beat ${PRICE_BEAT}`);
+    const floor = lowestAllowedPrice(ctx.lowestOffered);
+    for (const p of prices) {
+      if (!(PRICE_LADDER as readonly number[]).includes(p)) return fail(`unapproved price $${p}`);
+      if (p < floor) return fail(`skipped down to $${p} (lowest allowed now $${floor})`);
+    }
+  }
+
+  // Numbers and claims the script and facts do not make
+  const allowed = new Set(numberTokens(`${ctx.corpus} four three fifty twenty five`));
+  for (const n of numberTokens(t)) if (!allowed.has(n)) return fail(`new number "${n}"`);
+  // A number with its unit must appear with that unit somewhere approved: "twelve" may be in the
+  // script, "twelve years" is not
+  const corpusUnits = new Set(numberWithUnit(ctx.corpus));
+  for (const p of numberWithUnit(t)) if (!corpusUnits.has(p) && !/ (dollar|cent)$/.test(p)) return fail(`new figure "${p}"`);
+  const risk = addedRisk(t, ctx.corpus);
+  if (risk) return fail(risk);
+  return { ok: true, prices };
+}
+
+// -----------------------------------------------------------------------------
+// The call
+// -----------------------------------------------------------------------------
+export type FreeOutcome =
+  | { ok: true; reply: FreeReply; prices: number[]; attempts: number; ms: number }
+  | { ok: false; reason: string; attempts: number; ms: number };
+
+/** Ask the AI for Max's next reply; one retry with the reason if a guard rejects it. */
+export async function runFreeTurn(
+  args: { system: string; history: ChatMessage[]; customer: string; guard: GuardContext },
+  fetchImpl: typeof fetch = fetch
+): Promise<FreeOutcome> {
+  const t0 = Date.now();
+  const apiKey = process.env.XAI_API_KEY?.trim() || process.env.OPENAI_API_KEY?.trim();
+  if (!apiKey) return { ok: false, reason: "no AI key", attempts: 0, ms: 0 };
+  const isXai = Boolean(process.env.XAI_API_KEY?.trim());
+  const endpoint = isXai ? "https://api.x.ai/v1/chat/completions" : "https://api.openai.com/v1/chat/completions";
+  const model = process.env.FREE_AI_MODEL?.trim() || process.env.GROK_MODEL?.trim() || (isXai ? "grok-4.20-0309-non-reasoning" : "gpt-4o-mini");
+
+  let note: string | undefined;
+  let lastReason = "";
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    const remaining = FREE_AI_TIMEOUT_MS - (Date.now() - t0);
+    if (remaining < 300) return { ok: false, reason: lastReason ? `${lastReason}; no time to retry` : `timeout ${FREE_AI_TIMEOUT_MS}ms`, attempts: attempt - 1, ms: Date.now() - t0 };
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), remaining);
+    try {
+      const res = await fetchImpl(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({
+          model,
+          temperature: 0.6,
+          max_tokens: 450,
+          messages: buildFreeMessages(args.system, args.history, args.customer, note),
+        }),
+        signal: controller.signal,
+      });
+      if (!res.ok) return { ok: false, reason: `http ${res.status}`, attempts: attempt, ms: Date.now() - t0 };
+      const data = await res.json();
+      const raw: string = data.choices?.[0]?.message?.content ?? "";
+      const reply = parseFreeReply(raw);
+      if (!reply) {
+        lastReason = "not valid JSON";
+      } else {
+        const g = guardFreeReply(reply, args.guard);
+        if (g.ok) return { ok: true, reply, prices: g.prices, attempts: attempt, ms: Date.now() - t0 };
+        lastReason = `rejected: ${g.reason}`;
+      }
+      note = `your last reply was not used (${lastReason}). Reply again, following the rules, as JSON only.`;
+    } catch {
+      return { ok: false, reason: controller.signal.aborted ? `timeout ${FREE_AI_TIMEOUT_MS}ms` : "error", attempts: attempt, ms: Date.now() - t0 };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  return { ok: false, reason: lastReason, attempts: 2, ms: Date.now() - t0 };
+}

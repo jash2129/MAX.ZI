@@ -621,6 +621,8 @@ export function LiveAvatarDemo() {
           aiReason: data.metrics?.aiReason,
           speech: data.metrics?.speech,
           speechReason: data.metrics?.speechReason,
+          mode: data.metrics?.mode,
+          freeReason: data.metrics?.freeReason,
         };
         logTurnEvent(turnLog);
 

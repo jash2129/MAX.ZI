@@ -642,6 +642,11 @@ export default function CallInspectorPage() {
                               ) : (
                                 <span className="text-slate-500">no</span>
                               )}
+                              {c?.mode === "free" ? (
+                                <span title={`The AI ran this turn (${c.freeMs ?? "?"} ms, ${c.freeReason ?? ""})`} className="ml-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-fuchsia-500/20 text-fuchsia-300 border border-fuchsia-500/30 cursor-help">Free</span>
+                              ) : c?.mode === "script" ? (
+                                <span title={`The script took this turn: ${c.freeReason ?? ""}`} className="ml-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-orange-500/20 text-orange-300 border border-orange-500/30 cursor-help">Script</span>
+                              ) : null}
                               {c?.speech === "ai" ? (
                                 <span title={`AI worded this reply (${c.speechMs ?? "?"} ms)`} className="ml-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 cursor-help">Words</span>
                               ) : c?.speech === "script" ? (

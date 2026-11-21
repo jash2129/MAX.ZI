@@ -24,6 +24,11 @@ export type ControllerTurnMetrics = {
   speech?: "ai" | "script";
   speechReason?: string;
   speechMs?: number;
+  /** Free AI (MAX_MODE=free): who ran the turn, and why the script took over */
+  mode?: "free" | "script";
+  freeReason?: string;
+  freeMs?: number;
+  freeAttempts?: number;
 };
 
 export type TurnTimingLog = {
@@ -114,6 +119,8 @@ export type HeygenCallLog = {
     aiReason?: string;
     speech?: "ai" | "script";
     speechReason?: string;
+    mode?: "free" | "script";
+    freeReason?: string;
   }>;
 };
 

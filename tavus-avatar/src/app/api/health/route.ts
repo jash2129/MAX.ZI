@@ -3,6 +3,7 @@ import { storeStatus } from "@/lib/call-log-store";
 import { storeBackend, upstashEnvNames } from "@/lib/upstash";
 import { isAIFirstEnabled } from "@/lib/ai-understanding";
 import { isAISpeechEnabled } from "@/lib/ai-speech";
+import { isFreeAIEnabled } from "@/lib/free-ai";
 import { defaultSttEngine } from "@/lib/deepgram-stt";
 import { mintDeepgramToken } from "@/lib/deepgram-token";
 
@@ -25,9 +26,11 @@ export async function GET(request: Request) {
     callLogSecret: set("CALL_LOG_SECRET"),
     heygenKey: set("HEYGEN_API_KEY"),
     aiKey: set("XAI_API_KEY") || set("OPENAI_API_KEY"),
-    // "ai" only when MAX_UNDERSTANDING=ai AND an AI key is set; otherwise every turn uses the rules
+    // "free": the AI runs the whole call (MAX_MODE=free); "script": the beat controller does
+    mode: isFreeAIEnabled() ? (set("XAI_API_KEY") || set("OPENAI_API_KEY") ? "free" : "free (no key: script only)") : "script",
     // "ai": Max's replies in Beats 2-21 are worded by the AI and checked (MAX_SPEECH=ai)
     speech: isAISpeechEnabled() ? (set("XAI_API_KEY") || set("OPENAI_API_KEY") ? "ai" : "ai (no key: script only)") : "script",
+    // "ai" only when MAX_UNDERSTANDING=ai AND an AI key is set; otherwise every turn uses the rules
     understanding: isAIFirstEnabled() ? (set("XAI_API_KEY") || set("OPENAI_API_KEY") ? "ai" : "ai (no key: rules only)") : "rules",
     eventConfig: process.env.EVENT_CONFIG || null,
   });

@@ -53,7 +53,7 @@ const LOCKED_INTENTS = new Set<string>([
 ]);
 
 export interface SpeechTurn {
-  intent: ClassifierIntent | "step0" | "greeting";
+  intent: ClassifierIntent | "step0" | "greeting" | "free";
   beatBefore: number;
   beatAfter: number;
   beatType: "wait" | "continue" | "stop";
@@ -123,6 +123,20 @@ const MAKES_ALL = new RegExp(MAKES.source, "g");
 
 // Coverage words the draft names that the reply must still name
 const KEY_TERMS = ["bumper", "powertrain", "tire", "wheel", "maintenance", "oil", "labor", "deductible", "glovebox", "defect", "wear and tear"];
+
+/** The first risky claim in `text` that `source` does not make, or null (also used by free mode) */
+export function addedRisk(text: string, source: string): string | null {
+  const low = text.toLowerCase();
+  const srcLow = source.toLowerCase();
+  const gNorm = norm(text);
+  const sNorm = norm(source);
+  for (const [label, re] of RISKY) {
+    const plain = label === "claims to be human" || label === "everything covered";
+    if (re.test(plain ? gNorm : low) && !re.test(plain ? sNorm : srcLow)) return `adds ${label}`;
+  }
+  for (const m of low.match(MAKES_ALL) ?? []) if (!srcLow.includes(m)) return `names ${m}`;
+  return null;
+}
 
 export interface CheckResult {
   ok: boolean;

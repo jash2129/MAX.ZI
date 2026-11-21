@@ -3,6 +3,16 @@ import { DEFAULT_DEAL_CONFIG, type DealConfig } from "./deal-config";
 import { shouldAskAI, understandWithAI } from "./ai-understanding";
 import { shouldSpeakWithAI, speakWithAI } from "./ai-speech";
 import {
+  isFreeAIEnabled,
+  buildFreeSystemPrompt,
+  runFreeTurn,
+  PRICE_LADDER,
+  PRICE_BEAT,
+  LAST_BEAT,
+  type ChatMessage,
+} from "./free-ai";
+import { approvedFacts } from "./grounded-answer";
+import {
   LEAD_IN_NO,
   GARBLED_LINE,
   DEFER_LINE,
@@ -153,6 +163,12 @@ export interface CallState {
    * "what Max just said" works as before; `said` is the AI's wording of that line, actually spoken
    */
   last_said?: { script: string; said: string };
+  /** Free AI (MAX_MODE=free): the conversation as the AI sees it, Max = assistant */
+  free_history?: ChatMessage[];
+  /** Free AI: the lowest daily price Max has offered (the guard allows one step below it) */
+  free_lowest_offer?: number | null;
+  /** Free AI: the recording disclosure has been said word for word */
+  free_disclosure_given?: boolean;
   is_impatient_flow?: boolean;
   sentence_index?: number;
   total_sentences?: number;
@@ -277,6 +293,11 @@ export interface TurnMetrics {
   speech?: "ai" | "script";
   speechReason?: string;
   speechMs?: number;
+  /** Free AI (MAX_MODE=free): who ran this turn, why the script took over, AI time and attempts */
+  mode?: "free" | "script";
+  freeReason?: string;
+  freeMs?: number;
+  freeAttempts?: number;
 }
 
 /** The words Max actually said last: the AI's wording when it was used, else the approved line */
@@ -290,7 +311,7 @@ export interface ControllerDecision {
   beatType: "wait" | "continue" | "stop";
   toolCalls: Array<{ name: string; args: Record<string, any> }>;
   state: CallState;
-  intent: ClassifierIntent | "step0" | "greeting";
+  intent: ClassifierIntent | "step0" | "greeting" | "free";
   isScriptComplete?: boolean;
   metrics?: TurnMetrics & { controllerMs: number; intent: string; beatBefore: number; beatAfter: number };
 }
@@ -471,6 +492,7 @@ export function repromptText(sessionId: string, kind: "resume" | "still_with_me"
   }
   const text = kind === "clarify" ? CLARIFY_LINE : kind === "still_with_me" ? `${STILL_WITH_ME_LINE} ${pendingQuestion(state)}` : pendingQuestion(state);
   state.last_spoken_text = scrubDisputedVehicle(text, state);
+  if (isFreeAIEnabled()) pushFree(state, "", state.last_spoken_text);
   return state.last_spoken_text;
 }
 
@@ -2667,6 +2689,162 @@ async function handleGroundedTurn(
 // Evaluates customer input against current call state and outputs exact text to speak
 // -----------------------------------------------------------------------------
 export async function processControllerTurn(
+  sessionId: string,
+  customerTranscript: string,
+  dealConfig = DEFAULT_DEAL_CONFIG,
+  mockClassification?: ClassificationResult
+): Promise<ControllerDecision> {
+  // Free AI (MAX_MODE=free): the AI runs the call; a turn it cannot do safely goes to the script
+  if (isFreeAIEnabled() && !mockClassification) {
+    const free = await processFreeTurn(sessionId, customerTranscript, dealConfig);
+    if ("decision" in free) return free.decision;
+    const scripted = await processScriptedTurn(sessionId, customerTranscript, dealConfig);
+    scripted.metrics = { ...scripted.metrics!, mode: "script", freeReason: free.reason, freeMs: free.ms, freeAttempts: free.attempts };
+    pushFree(scripted.state, customerTranscript, scripted.textToSpeak);
+    syncFreeFromScript(scripted.state);
+    console.log(JSON.stringify({ event: "free_ai_fallback", sessionId, reason: free.reason, beat: scripted.beatId }));
+    return scripted;
+  }
+  return processScriptedTurn(sessionId, customerTranscript, dealConfig, mockClassification);
+}
+
+// -----------------------------------------------------------------------------
+// FREE AI (Option D, MAX_MODE=free): the AI runs the whole call from the full script and the facts.
+// Code still enforces the price ladder, the facts and the disclosure (src/lib/free-ai.ts).
+// -----------------------------------------------------------------------------
+/** The recording disclosure the AI must say word for word (TXM's own words, in Max's voice) */
+export const FREE_DISCLOSURE =
+  "This transaction is recorded audio and video, and I'm required by law to go over everything with you before you sign any paperwork, to make sure you understand.";
+const saysDisclosure = (t: string) => /recorded audio and video/i.test(t);
+
+function freeScript(dealConfig: DealConfig) {
+  const beats = BEATS.map((b) => ({ id: b.id, text: formatSpeechText(renderBeatText(b, dealConfig)) }));
+  const facts = approvedFacts()
+    .map((f) => `- ${f.topic}: ${f.answer}`)
+    .join("\n");
+  const vehicle = `${dealConfig.vehicle_year} ${dealConfig.vehicle_make} ${dealConfig.vehicle_model}`.trim();
+  return { beats, facts, vehicle, disclosure: FREE_DISCLOSURE };
+}
+
+function freeHistory(state: CallState): ChatMessage[] {
+  return (state.free_history ??= [{ role: "assistant", content: STEP_0_GREETING }]);
+}
+/** Record a turn in the AI's view of the call (also when the script or a reprompt took a turn) */
+function pushFree(state: CallState, customer: string, max: string): void {
+  const h = freeHistory(state);
+  if (customer) h.push({ role: "user", content: customer });
+  h.push({ role: "assistant", content: max });
+  if (h.length > 60) h.splice(0, h.length - 60);
+}
+/** After the script took a turn, free mode carries on from where the script left the call */
+function syncFreeFromScript(state: CallState): void {
+  if (state.current_beat >= 1 && (state.free_history ?? []).some((m) => m.role === "assistant" && saysDisclosure(m.content))) {
+    state.free_disclosure_given = true;
+  }
+  if (state.current_beat >= PRICE_BEAT) {
+    const stage = state.concession_stage ?? 1;
+    const offered = PRICE_LADDER[Math.min(PRICE_LADDER.length - 1, Math.max(0, stage - 1))];
+    state.free_lowest_offer = Math.min(state.free_lowest_offer ?? offered, offered);
+  }
+}
+
+async function processFreeTurn(
+  sessionId: string,
+  customerTranscript: string,
+  dealConfig: DealConfig
+): Promise<{ decision: ControllerDecision } | { reason: string; ms: number; attempts: number }> {
+  const t0 = Date.now();
+  const state = getOrCreateCallState(sessionId, dealConfig);
+  // After the call has ended every turn gets the fixed closing line, from the script
+  if (state.is_stopped) return { reason: "call ended: fixed closing line", ms: 0, attempts: 0 };
+  const beatBefore = state.current_beat;
+  const script = freeScript(state.dealConfig);
+  const corpus = `${script.beats.map((b) => b.text).join(" ")} ${script.facts} ${script.vehicle} ${STEP_0_GREETING}`;
+  const outcome = await runFreeTurn({
+    system: buildFreeSystemPrompt(script),
+    history: freeHistory(state),
+    customer: customerTranscript,
+    guard: { corpus, beatBefore, lowestOffered: state.free_lowest_offer },
+  });
+  if (!outcome.ok) return { reason: outcome.reason, ms: outcome.ms, attempts: outcome.attempts };
+
+  const { reply, prices } = outcome;
+  let say = reply.say;
+  // Where the call is now: never back, never past the disclosure without it, the price beats once a price is said
+  let beat = Math.max(beatBefore, reply.beat);
+  if (prices.length) beat = Math.max(beat, PRICE_BEAT);
+  if (!state.free_disclosure_given) {
+    if (saysDisclosure(say)) {
+      state.free_disclosure_given = true;
+      beat = 1;
+    } else if (beat >= 1) {
+      // Moved on without the disclosure: say it now, word for word, and wait for the okay
+      say = `${say} ${getFullBeatUtterance(BEATS.find((b) => b.id === 1)!, state.dealConfig, state)}`;
+      state.free_disclosure_given = true;
+      beat = 1;
+    }
+  }
+  beat = Math.min(beat, LAST_BEAT);
+
+  // Panels for the beats reached, and the price bookkeeping (shared with the script if it takes a turn)
+  let toolCalls: ControllerDecision["toolCalls"] = [];
+  for (let b = beatBefore + 1; b <= beat; b++) toolCalls.push(...getBeatToolCalls(b).filter((c) => c.name !== "show_payment_breakdown"));
+  if (prices.length) {
+    const lowest = Math.min(...prices, state.free_lowest_offer ?? Infinity);
+    state.free_lowest_offer = lowest;
+    state.negotiated_price_so_far = lowest;
+    state.concession_stage = (PRICE_LADDER as readonly number[]).indexOf(lowest) + 1;
+    toolCalls = [...toolCalls, { name: "show_payment_breakdown", args: { daily_rate: Math.min(...prices) } }];
+  }
+  if (reply.declined) state.package_declined = true;
+
+  state.current_beat = beat;
+  state.delivered_beats = Array.from({ length: beat }, (_, i) => i + 1);
+  if (beat >= 1) state.step0_completed = true;
+  state.last_spoken_text = say;
+  const asked = lastQuestionOf(say);
+  if (asked) {
+    state.last_question = asked;
+    state.last_question_beat = beat;
+  }
+  state.recent_turns = [...(state.recent_turns ?? []), { customer: customerTranscript, max: say }].slice(-3);
+  pushFree(state, customerTranscript, say);
+
+  const ending = reply.endCall;
+  if (ending) {
+    state.is_stopped = true;
+    // The script's "Everything on your paperwork is all set and finalized" is only said when the
+    // controller itself verified the details; after a free call every later turn is the plain goodbye
+    state.verification_deferred = true;
+    if (beat >= LAST_BEAT) onScriptComplete(state);
+  }
+  const decision: ControllerDecision = {
+    textToSpeak: say,
+    beatId: beat,
+    beatType: ending ? "stop" : "wait",
+    toolCalls,
+    state,
+    intent: "free",
+    isScriptComplete: ending,
+  };
+  decision.metrics = {
+    classifierMs: 0,
+    usedLLM: true,
+    classifierTimedOut: false,
+    mode: "free",
+    freeReason: outcome.attempts > 1 ? "ok on retry" : "ok",
+    freeMs: outcome.ms,
+    freeAttempts: outcome.attempts,
+    controllerMs: Date.now() - t0,
+    intent: "free",
+    beatBefore,
+    beatAfter: beat,
+  };
+  console.log(`[beat-controller] mode=free (${outcome.ms} ms, attempts ${outcome.attempts}), Beat ${beatBefore} -> ${beat}`);
+  return { decision };
+}
+
+async function processScriptedTurn(
   sessionId: string,
   customerTranscript: string,
   dealConfig = DEFAULT_DEAL_CONFIG,
