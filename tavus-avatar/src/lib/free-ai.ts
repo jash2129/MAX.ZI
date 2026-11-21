@@ -80,10 +80,18 @@ Reply with ONLY JSON:
 "declined" is true only when the customer has finally turned the package down.`;
 }
 
-export function buildFreeMessages(system: string, history: ChatMessage[], customer: string, note?: string): ChatMessage[] {
+/** Where the call is, from the app's own records (the AI does not have to work it out from the chat) */
+export function callStateNote(s: { beat: number; disclosureGiven: boolean; lowestOffered: number | null | undefined }): string {
+  const price = s.lowestOffered === null || s.lowestOffered === undefined ? "none yet" : `$${s.lowestOffered} a day`;
+  return `CALL STATE (from the app, not said by anyone): furthest script beat delivered: ${s.beat}${s.beat < LAST_BEAT ? ` (next: Beat ${s.beat + 1})` : " (script done)"}. Recording disclosure already given: ${s.disclosureGiven ? "yes, never repeat it" : "no"}. Lowest price offered so far: ${price}.`;
+}
+
+export function buildFreeMessages(system: string, history: ChatMessage[], customer: string, note?: string, where?: string): ChatMessage[] {
   return [
     { role: "system", content: system },
     ...history.slice(-HISTORY_MESSAGES),
+    // After the history, so the unchanging system prompt and history stay a cacheable prefix
+    ...(where ? [{ role: "system" as const, content: where }] : []),
     { role: "user", content: customer },
     ...(note ? [{ role: "user" as const, content: `[Note to Max, not said by the customer: ${note}]` }] : []),
   ];
@@ -104,6 +112,19 @@ export function parseFreeReply(raw: string): FreeReply | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * The reply, or, when the AI answered in plain sentences instead of JSON (it copies the plain lines
+ * in the history), those sentences as Max's words with the call staying where it is. Never JSON-ish
+ * fragments or empty text.
+ */
+export function parseFreeReplyOrText(raw: string, beatBefore: number): FreeReply | null {
+  const parsed = parseFreeReply(raw);
+  if (parsed) return parsed;
+  const text = raw.trim().replace(/^"([\s\S]*)"$/, "$1").replace(/\s+/g, " ");
+  if (!text || /[{}]|"say"\s*:/.test(text)) return null;
+  return { say: text, beat: beatBefore, endCall: false, declined: false };
 }
 
 const AMOUNT_WORDS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5 };
@@ -189,12 +210,12 @@ export function guardFreeReply(reply: FreeReply, ctx: GuardContext): GuardResult
 // The call
 // -----------------------------------------------------------------------------
 export type FreeOutcome =
-  | { ok: true; reply: FreeReply; prices: number[]; attempts: number; ms: number }
+  | { ok: true; reply: FreeReply; prices: number[]; attempts: number; ms: number; retryReason?: string }
   | { ok: false; reason: string; attempts: number; ms: number };
 
 /** Ask the AI for Max's next reply; one retry with the reason if a guard rejects it. */
 export async function runFreeTurn(
-  args: { system: string; history: ChatMessage[]; customer: string; guard: GuardContext },
+  args: { system: string; history: ChatMessage[]; customer: string; guard: GuardContext; where?: string },
   fetchImpl: typeof fetch = fetch
 ): Promise<FreeOutcome> {
   const t0 = Date.now();
@@ -219,19 +240,21 @@ export async function runFreeTurn(
           model,
           temperature: 0.6,
           max_tokens: 450,
-          messages: buildFreeMessages(args.system, args.history, args.customer, note),
+          // JSON mode: the reply is the JSON object, not sentences copied from the history's style
+          response_format: { type: "json_object" },
+          messages: buildFreeMessages(args.system, args.history, args.customer, note, args.where),
         }),
         signal: controller.signal,
       });
       if (!res.ok) return { ok: false, reason: `http ${res.status}`, attempts: attempt, ms: Date.now() - t0 };
       const data = await res.json();
       const raw: string = data.choices?.[0]?.message?.content ?? "";
-      const reply = parseFreeReply(raw);
+      const reply = parseFreeReplyOrText(raw, args.guard.beatBefore);
       if (!reply) {
         lastReason = "not valid JSON";
       } else {
         const g = guardFreeReply(reply, args.guard);
-        if (g.ok) return { ok: true, reply, prices: g.prices, attempts: attempt, ms: Date.now() - t0 };
+        if (g.ok) return { ok: true, reply, prices: g.prices, attempts: attempt, ms: Date.now() - t0, ...(lastReason ? { retryReason: lastReason } : {}) };
         lastReason = `rejected: ${g.reason}`;
       }
       note = `your last reply was not used (${lastReason}). Reply again, following the rules, as JSON only.`;

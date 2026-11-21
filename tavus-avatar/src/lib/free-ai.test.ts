@@ -6,6 +6,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   isFreeAIEnabled,
   parseFreeReply,
+  parseFreeReplyOrText,
+  callStateNote,
   guardFreeReply,
   lowestAllowedPrice,
   dailyPrices,
@@ -89,6 +91,17 @@ describe("reading the AI's reply", () => {
   });
   it("clamps the beat to the script", () => {
     expect(parseFreeReply('{"say":"x","beat":99}')?.beat).toBe(25);
+  });
+  it("plain sentences instead of JSON are Max's words, and the call stays where it is", () => {
+    expect(parseFreeReplyOrText("Yeah, the powertrain is the engine and transmission.", 6)).toEqual({ say: "Yeah, the powertrain is the engine and transmission.", beat: 6, endCall: false, declined: false });
+    expect(parseFreeReplyOrText('{"say": "broken', 6)).toBeNull();
+    expect(parseFreeReplyOrText("   ", 6)).toBeNull();
+  });
+  it("every turn tells the AI where the call is", () => {
+    const n = callStateNote({ beat: 6, disclosureGiven: true, lowestOffered: null });
+    expect(n).toMatch(/furthest script beat delivered: 6 \(next: Beat 7\)/);
+    expect(n).toMatch(/disclosure already given: yes, never repeat it/);
+    expect(callStateNote({ beat: 23, disclosureGiven: true, lowestOffered: 3.5 })).toMatch(/\$3\.5 a day/);
   });
 });
 

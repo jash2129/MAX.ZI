@@ -6,6 +6,7 @@ import {
   isFreeAIEnabled,
   buildFreeSystemPrompt,
   runFreeTurn,
+  callStateNote,
   PRICE_LADDER,
   PRICE_BEAT,
   LAST_BEAT,
@@ -2765,6 +2766,7 @@ async function processFreeTurn(
     history: freeHistory(state),
     customer: customerTranscript,
     guard: { corpus, beatBefore, lowestOffered: state.free_lowest_offer },
+    where: callStateNote({ beat: beatBefore, disclosureGiven: Boolean(state.free_disclosure_given), lowestOffered: state.free_lowest_offer }),
   });
   if (!outcome.ok) return { reason: outcome.reason, ms: outcome.ms, attempts: outcome.attempts };
 
@@ -2832,7 +2834,7 @@ async function processFreeTurn(
     usedLLM: true,
     classifierTimedOut: false,
     mode: "free",
-    freeReason: outcome.attempts > 1 ? "ok on retry" : "ok",
+    freeReason: outcome.retryReason ? `ok on retry (first try ${outcome.retryReason})` : "ok",
     freeMs: outcome.ms,
     freeAttempts: outcome.attempts,
     controllerMs: Date.now() - t0,
