@@ -58,7 +58,10 @@ tavus-avatar/public/window.svg
 *.webm
 *.mp3
 *.zip
-testing-skill/reports/
+# Test reports stay local (real-call replays, recordings, server logs), except the simulator batch
+# reports: simulated customers only
+testing-skill/reports/*
+!testing-skill/reports/sim-batch-*
 # Real call transcripts (what testers and customers said): stays on this machine
 testing-skill/real-calls/
 tavus-avatar/logs/

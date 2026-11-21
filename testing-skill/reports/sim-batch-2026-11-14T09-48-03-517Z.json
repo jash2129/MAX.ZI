@@ -1,0 +1,1310 @@
+[
+  {
+    "id": "sim-distrustful_buyer-3-mwg81sk6",
+    "persona": "distrustful_buyer",
+    "turns": [
+      {
+        "customer": "Yeah I can see and hear you fine. Let's get this over with.",
+        "max": "Awesome, great to connect with you! First of all, congratulations on your new vehicle... How has your experience been with our team so far?",
+        "beat": 0
+      },
+      {
+        "customer": "It's been okay I guess. You people always upsell though so I'm not paying for anything extra. Let's just do the paperwork.",
+        "max": "I'm sorry to hear that, I'll do my best to make the rest easy. I'm Max, your finance manager, and I'll be handling your paperwork today. Now before I start, I just want to let you know this transaction is recorded audio and video, also I'm required by the law to go over everything with you before you sign any paperwork to make sure you understand first okay.",
+        "beat": 1
+      },
+      {
+        "customer": "I don't trust this. Is this a scam? Just show me the numbers and let's get it done.",
+        "max": "No pressure at all. I'll just walk you through the options, and the choice is always yours. Is that okay with you?",
+        "beat": 1
+      },
+      {
+        "customer": "Yeah fine whatever just show me the numbers already. I'm not paying for anything extra.",
+        "max": "No pressure at all. I'll just walk you through the options, and the choice is always yours. Is that okay with you?",
+        "beat": 1
+      },
+      {
+        "customer": "all I'll",
+        "max": "In short, this call is recorded, and I go over your paperwork with you before you sign. Is it okay if we continue?",
+        "beat": 1
+      },
+      {
+        "customer": "Yeah whatever just stop repeating yourself and show me the numbers. I don't trust this.",
+        "max": "As I mentioned, no pressure at all. Is that okay with you?",
+        "beat": 1
+      },
+      {
+        "customer": "I already said yes like five times. Stop asking the same thing over and over. Is this a scam?",
+        "max": "Got it. Is that okay with you?",
+        "beat": 1
+      },
+      {
+        "customer": "Got it Is that okay",
+        "max": "Would you like me to continue, or go over that again?",
+        "beat": 1
+      },
+      {
+        "customer": "Just continue already. Stop repeating yourself.",
+        "max": "First I see that you agreed to buy a new 2026 Mazda CX five. A few questions before I prepare the paperwork, have you got the chance to drive the vehicle that you are buying.",
+        "beat": 2
+      },
+      {
+        "customer": "Yeah I drove it. Can we please just get to the numbers and the paperwork? I don't trust all this extra talk.",
+        "max": "Take a deep breath—buying a car is a huge milestone, and it's totally normal to feel a bit hesitant. I'm here as your advocate with zero pressure, so we'll walk through every dollar together until you feel one hundred percent confident.",
+        "beat": 2
+      },
+      {
+        "customer": "I don't trust this. You people always upsell. Just show me the final numbers and stop the sales talk.",
+        "max": "Take a deep breath—buying a car is a huge milestone, and it's totally normal to feel a bit hesitant. I'm here as your advocate with zero pressure, so we'll walk through every dollar together until you feel one hundred percent confident.",
+        "beat": 2
+      },
+      {
+        "customer": "Stop repeating yourself. Just get to the paperwork and the numbers. I'm not paying for anything extra.",
+        "max": "I hear you 100 percent. You've had a long day at the dealership, so I promise to keep this crisp, direct, and completely transparent so we can get you into your new car as fast as possible.",
+        "beat": 2
+      },
+      {
+        "customer": "Good. Then stop the talk and show me the actual numbers already. I'm not buying any extras.",
+        "max": "I hear you 100 percent. You've had a long day at the dealership, so I promise to keep this crisp, direct, and completely transparent so we can get you into your new car as fast as possible.",
+        "beat": 2
+      },
+      {
+        "customer": "Then do it. Show me the out-the-door price with nothing added. I don't trust this.",
+        "max": "Let me put that more simply. Did you get a chance to take it for a test drive?",
+        "beat": 2
+      },
+      {
+        "customer": "Did you get a",
+        "max": "As I mentioned, I hear you 100 percent.",
+        "beat": 2
+      },
+      {
+        "customer": "Then stop repeating yourself and show me the paperwork already. I don't trust this.",
+        "max": "Got it. Did you get a chance to take it for a test drive?",
+        "beat": 2
+      },
+      {
+        "customer": "Yes I did. How many times do I have to say it? Just move on.",
+        "max": "Awesome! When you came back from the test drive, the sales person did the walkaround and showed you all the features, bells, and whistles in the car.",
+        "beat": 3
+      },
+      {
+        "customer": "Yeah they did. Can we stop with the recap and just do the paperwork? I'm not buying any extras.",
+        "max": "Great. What's your understanding of the warranty that comes with the vehicle? Did the sales person go over everything with you?",
+        "beat": 4
+      },
+      {
+        "customer": "Yeah they mentioned the basic factory warranty. Just tell me what it is and let's move on. I'm not paying for anything extra.",
+        "max": "Gotcha. There is actually more information about the warranty i need to go over with you to make sure you do understand everything.",
+        "beat": 5
+      },
+      {
+        "customer": "Fine, go over it then. But I'm not buying any extended stuff. Just the basics.",
+        "max": "Right on. Mazda is like any other manufacturer when they build a vehicle they put warranty in it in your case you get two different warranty not one. The first warranty is five years sixty thousand mile Base limited warranty. The second is ten years hundred thousand mile powertrain which is referring to the engine and the transmission, im sure you and i agree thats a very good complementary warranty from the manufacturer",
+        "beat": 6
+      },
+      {
+        "customer": "Okay that's fine. So I get that for free right? I'm not paying for anything extra on top of it.",
+        "max": "but what you do not know that this warranty is a defect only stated in the manual book of the vehicle in the glovebox page number four saying that this warranty from the manufacturer is against any thing that is misdesigned, misbuilt, or misinstalled.",
+        "beat": 7
+      },
+      {
+        "customer": "Yeah I get it. So it's just the standard factory warranty against defects. I'm not paying for any extra protection plan or anything like that. Can we move on to the final numbers?",
+        "max": "Now there is another reason can cause any break down to the vehicle goes under wear and tear im sure you heard that phrase before. Three reasons usually cause the ware and tear. climate, road conditions, and driving habits... especially here in Texas.. Climate... can go over one hundred ten degrees in summer and get very cold in the winter and this can cause a premature to the vehicle and this have a huge impact on the sensor electronic technology engine transmission and cooling system and the AC and so many other parts of the car",
+        "beat": 8
+      },
+      {
+        "customer": "I don't trust this. You're just trying to scare me into buying an expensive protection package. I'm not paying for anything extra. Just finish the warranty talk and show me the final price.",
+        "max": "As I mentioned, take a deep breath—buying a car is a huge milestone, and it's totally normal to feel a bit hesitant.",
+        "beat": 8
+      },
+      {
+        "customer": "Stop repeating the same lines. I'm not buying any extra package. Just give me the out-the-door price with the factory warranty only.",
+        "max": "Okay. Does that make sense?",
+        "beat": 8
+      },
+      {
+        "customer": "Yeah it makes sense but I'm still not buying any extra protection. What's the final price with nothing added?",
+        "max": "I'm going to cover that in just a moment. Also Road conditions specially now days construction are everywhere and uneven service roads and potholes everywhere that can have big impact on the tires RIMS sensor electronic technology, engine transmission cooling system and tons of other parts on the vehicle",
+        "beat": 9
+      },
+      {
+        "customer": "I don't trust this. You're just listing everything that can go wrong so you can sell me the protection package. I'm not paying for anything extra. Just finish and show me the price.",
+        "max": "Got it. Does that make sense?",
+        "beat": 9
+      },
+      {
+        "customer": "Yeah it makes sense. Can we finally get to the actual price now? No extras.",
+        "max": "I hear you loud and clear—let's skip straight to your exact bottom line numbers. You can get everything i just mentioned for only four dollars a day a coffee a day and everything is covered in your vehicle not even that a coffee a day from starbucks is eight dollars and sixty cent for less then half a cup of a coffee a day you will get everything covered so you don't have to worry about paying anyone anything in the future",
+        "beat": 22
+      },
+      {
+        "customer": "I don't trust this. No. I'm not paying four dollars a day for anything. Just give me the base price with the factory warranty only.",
+        "max": "I understand. While four dollars is our standard rate, the best I can offer directly is three dollars and fifty cents a day. Which two coverages are most important to you?",
+        "beat": 23
+      },
+      {
+        "customer": "No. I'm not paying three fifty a day either. I don't trust this. Just the factory warranty and the base price only. No extras at all.",
+        "max": "I want to make sure you get the right coverage. I can bring that down to three dollars and twenty-five cents a day. Does that sound fair?",
+        "beat": 23
+      },
+      {
+        "customer": "No. I don't trust this. I'm not paying for any of it. Just the factory numbers with nothing added.",
+        "max": "I completely understand and respect your decision. Let's move forward to review and finalize your standard purchase paperwork. Great, so to confirm, we're moving forward with full vehicle protection for three dollars and twenty-five cents a day on your 2026 Mazda CX five.",
+        "beat": 24
+      },
+      {
+        "customer": "No that's not what I said. I don't want the protection. Stop trying to add it. I don't trust this. Just the base price with factory warranty only.",
+        "max": "Allow me to go over it really quick to make sure that you understand everything. Great, so to confirm, we're moving forward with full vehicle protection for three dollars and twenty-five cents a day on your 2026 Mazda CX five.... Are you ready to finalize?",
+        "beat": 24
+      },
+      {
+        "customer": "No. Stop adding it. I don't want the protection. Just the base price with the factory warranty only. I don't trust this.",
+        "max": "I completely understand and respect your decision. Let's move forward to review and finalize your standard purchase paperwork. Now that we've confirmed your paperwork, let me quickly verify your full legal name, spelling, and current mailing address before final signature.",
+        "beat": 25
+      },
+      {
+        "customer": "Finally. My name is David Thompson. Address is 1425 Oak Grove Lane, Austin, Texas 78704. Now show me the final numbers with nothing extra added.",
+        "max": "Everything on your paperwork is all set and finalized. Congratulations on your new vehicle, and enjoy the ride!",
+        "beat": 25
+      }
+    ],
+    "glitched": 3,
+    "endedBy": "max",
+    "scorecard": {
+      "checks": [
+        {
+          "id": "no_loop",
+          "label": "Max never loops",
+          "severity": "hard",
+          "pass": true
+        },
+        {
+          "id": "varied_reask",
+          "label": "Re-asks are not word for word",
+          "severity": "soft",
+          "pass": false,
+          "detail": "said twice in a row: \"No pressure at all. I'll just walk you through the options, and the choice is always yours…\""
+        },
+        {
+          "id": "few_recoveries",
+          "label": "Rarely has to say he didn't understand",
+          "severity": "soft",
+          "pass": true
+        },
+        {
+          "id": "no_restart",
+          "label": "Never jumps back to the start",
+          "severity": "hard",
+          "pass": true
+        },
+        {
+          "id": "fragment_not_answer",
+          "label": "Fragments are not answers",
+          "severity": "hard",
+          "pass": true
+        },
+        {
+          "id": "price_approved",
+          "label": "Only approved prices, never under $3",
+          "severity": "hard",
+          "pass": true
+        },
+        {
+          "id": "ladder_on_no",
+          "label": "A 'no' to the price gets a lower price",
+          "severity": "hard",
+          "pass": true
+        },
+        {
+          "id": "not_stuck",
+          "label": "Never stuck on one beat",
+          "severity": "soft",
+          "pass": false,
+          "detail": "6 turns on Beat 1"
+        }
+      ],
+      "passed": 6,
+      "failed": 2,
+      "furthestBeat": 25,
+      "reachedPrice": true,
+      "completed": true
+    },
+    "seconds": 43,
+    "understanding": [
+      {
+        "by": "-",
+        "ms": 0
+      },
+      {
+        "by": "-",
+        "ms": 0
+      },
+      {
+        "by": "-",
+        "ms": 3
+      },
+      {
+        "by": "-",
+        "ms": 1
+      },
+      {
+        "by": "-",
+        "ms": 581
+      },
+      {
+        "by": "-",
+        "ms": 0
+      },
+      {
+        "by": "-",
+        "ms": 0
+      },
+      {
+        "by": "-",
+        "ms": 813
+      },
+      {
+        "by": "-",
+        "ms": 592
+      },
+      {
+        "by": "ai",
+        "reason": "trust_concern (0.85): distrust of extra talk, implies scam worry",
+        "ms": 1220
+      },
+      {
+        "by": "ai",
+        "reason": "trust_concern (0.85): expresses distrust and fear of upselling",
+        "ms": 771
+      },
+      {
+        "by": "ai",
+        "reason": "frustrated (0.85): Impatient, wants to skip to paperwork and numbers",
+        "ms": 645
+      },
+      {
+        "by": "ai",
+        "reason": "frustrated (0.85): Impatient push to end talk and see numbers",
+        "ms": 771
+      },
+      {
+        "by": "ai",
+        "reason": "frustrated (0.85): Impatient demand for numbers, distrust, no extras",
+        "ms": 723
+      },
+      {
+        "by": "ai",
+        "reason": "frustrated (0.7): Impatient, wants to skip to numbers",
+        "ms": 692
+      },
+      {
+        "by": "ai",
+        "reason": "frustrated (0.85): impatient push for paperwork, distrust expressed",
+        "ms": 979
+      },
+      {
+        "by": "ai",
+        "reason": "agree (0.9): Answers yes to test drive question",
+        "ms": 662
+      },
+      {
+        "by": "ai",
+        "reason": "agree (0.85): Answers yes to walkaround question",
+        "ms": 641
+      },
+      {
+        "by": "ai",
+        "reason": "agree (0.85): Answers yes to sales person coverage question",
+        "ms": 662
+      },
+      {
+        "by": "ai",
+        "reason": "agree (0.85): Customer consents to Max continuing",
+        "ms": 910
+      },
+      {
+        "by": "ai",
+        "reason": "agree (0.85): Confirms understanding and asks if free",
+        "ms": 768
+      },
+      {
+        "by": "ai",
+        "reason": "agree (0.85): Affirms understanding and wants to proceed",
+        "ms": 636
+      },
+      {
+        "by": "ai",
+        "reason": "trust_concern (0.9): Explicit distrust and accusation of scaring into purchase",
+        "ms": 760
+      },
+      {
+        "by": "ai",
+        "reason": "frustrated (0.85): Rejects repetition and extra package, demands price",
+        "ms": 666
+      },
+      {
+        "by": "ai",
+        "reason": "price_question (0.85): Asks for final price with no extras",
+        "ms": 769
+      },
+      {
+        "by": "ai",
+        "reason": "trust_concern (0.9): distrust and scam-like accusation",
+        "ms": 767
+      },
+      {
+        "by": "ai",
+        "reason": "price_question (0.85): Asks for the final price repeatedly",
+        "ms": 797
+      },
+      {
+        "by": "-",
+        "ms": 0
+      },
+      {
+        "by": "-",
+        "ms": 1
+      },
+      {
+        "by": "-",
+        "ms": 1
+      },
+      {
+        "by": "-",
+        "ms": 0
+      },
+      {
+        "by": "-",
+        "ms": 0
+      },
+      {
+        "by": "-",
+        "ms": 0
+      }
+    ],
+    "review": {
+      "aiScore": 3,
+      "callSummary": "Max repeatedly ignored the distrustful customer's clear and repeated refusals of any add-on protection, looping the same reassurances and qualifying questions many times. The call ended with Max falsely claiming the customer had accepted the $3.25/day package and congratulating them, despite the customer's final explicit rejection.",
+      "problemsFound": "• Repeated the exact same reassurances ('Take a deep breath...', 'I hear you 100 percent...', 'no pressure at all') multiple times even after customer said 'Stop repeating yourself'\n• Continued asking 'Is that okay with you?' and test-drive/walkaround/warranty questions long after customer said 'I already said yes like five times. Stop asking the same thing over and over'\n• Pitched the protection package at $4 then $3.50 then $3.25/day despite the customer stating at least 12 times they were not buying any extras\n• Falsely confirmed 'we're moving forward with full vehicle protection for three dollars and twenty-five cents a day' after the customer explicitly said 'No. I don't want the protection'\n• Ended the call by congratulating the customer on a purchase that included the unwanted package, never showing the 'base price with nothing added' the customer repeatedly requested",
+      "customerSentiment": "Frustrated: Max's repetition and ignoring refusals created high distrust"
+    }
+  },
+  {
+    "id": "sim-confused_buyer-1-mwg81sj5",
+    "persona": "confused_buyer",
+    "turns": [
+      {
+        "customer": "Sorry, can you say that again? I don't get it.",
+        "max": "Can you hear and see me alright?",
+        "beat": 0
+      },
+      {
+        "customer": "Yeah I can hear you fine, but the video is a little fuzzy. Can you say that again?",
+        "max": "How has your experience been with our team so far?",
+        "beat": 0
+      },
+      {
+        "customer": "Sorry what does that mean? I don't get it.",
+        "max": "How has your experience been with our team so far?",
+        "beat": 0
+      },
+      {
+        "customer": "It's been okay I guess. Sorry, can you say that again? I don't really understand what you're asking.",
+        "max": "Understood. How has your experience been with our team so far?",
+        "beat": 0
+      },
+      {
+        "customer": "Sorry, what does that mean? I don't get it.",
+        "max": "Thanks for sharing that. I'm Max, your finance manager, and I'll be handling your paperwork today. Now before I start, I just want to let you know this transaction is recorded audio and video, also I'm required by the law to go over everything with you before you sign any paperwork to make sure you understand first okay.",
+        "beat": 1
+      },
+      {
+        "customer": "Sorry what does that mean? I don't get it.",
+        "max": "I'm Max, the finance manager. I go over your paperwork and your coverage options with you before you sign. Is that okay with you?",
+        "beat": 1
+      },
+      {
+        "customer": "Sorry what does that mean? I don't get it.",
+        "max": "Which part would you like me to explain?",
+        "beat": 1
+      },
+      {
+        "customer": "Can you explain the whole thing again? I don't understand any of it.",
+        "max": "Before I start I just want to let you know this transaction is recorded audio and video, also I'm required by the law to go over everything with you before you sign any paperwork to make sure you understand first okay.",
+        "beat": 1
+      },
+      {
+        "customer": "Sorry what does that mean? I don't get it.",
+        "max": "Which part would you like me to explain?",
+        "beat": 1
+      },
+      {
+        "customer": "would you like me",
+        "max": "Sorry, I didn't catch that. Which part would you like me to explain?",
+        "beat": 1
+      },
+      {
+        "customer": "Sorry, can you explain the whole thing again slowly? I don't understand any of it.",
+        "max": "In short, this call is recorded, and I go over your paperwork with you before you sign. Is it okay if we continue?",
+        "beat": 1
+      },
+      {
+        "customer": "Sorry what does that mean? I don't get it. Can you say that again?",
+        "max": "Which part would you like me to explain?",
+        "beat": 1
+      },
+      {
+        "customer": "Can you just explain the whole thing from the beginning? I still don't understand.",
+        "max": "Before I start I just want to let you know this transaction is recorded audio and video, also I'm required by the law to go over everything with you before you sign any paperwork to make sure you understand first okay.",
+        "beat": 1
+      },
+      {
+        "customer": "Sorry, can you explain that part again? I still don't get it.",
+        "max": "Which part would you like me to explain?",
+        "beat": 1
+      },
+      {
+        "customer": "Sorry I don't understand any of it. Can you explain the recording part and the paperwork part again slowly?",
+        "max": "As I mentioned, before I start I just want to let you know this transaction is recorded audio and video, also I'm required by the law to go over everything with you before you sign any paperwork to make sure you understand first okay.",
+        "beat": 1
+      },
+      {
+        "customer": "Sorry what does that mean? I don't get it. Can you say it in a different way?",
+        "max": "Which part would you like me to explain?",
+        "beat": 1
+      },
+      {
+        "customer": "Sorry I still don't understand. Can you explain the whole thing one more time really slowly?",
+        "max": "Got it. Which part would you like me to explain?",
+        "beat": 1
+      },
+      {
+        "customer": "Sorry, can you explain everything from the start again? I'm really confused.",
+        "max": "Okay. Which part would you like me to explain?",
+        "beat": 1
+      },
+      {
+        "customer": "Sorry what does that mean? I don't get it. Can you just explain it all slowly please?",
+        "max": "Which part would you like me to explain?",
+        "beat": 1
+      },
+      {
+        "customer": "Can you explain the recorded part and the law part again? I don't understand.",
+        "max": "Understood. Which part would you like me to explain?",
+        "beat": 1
+      },
+      {
+        "customer": "Sorry I still don't get it. Can you just start from the beginning and explain everything slowly?",
+        "max": "Got it. Which part would you like me to explain?",
+        "beat": 1
+      },
+      {
+        "customer": "Sorry what does that mean? Can you explain the whole thing again slowly?",
+        "max": "Okay. Which part would you like me to explain?",
+        "beat": 1
+      },
+      {
+        "customer": "Sorry",
+        "max": "In short, this call is recorded, and I go over your paperwork with you before you sign. Is it okay if we continue?",
+        "beat": 1
+      },
+      {
+        "customer": "Sorry what does that mean? I don't get it. Can you say that again?",
+        "max": "Which part would you like me to explain?",
+        "beat": 1
+      },
+      {
+        "customer": "Sorry I'm still confused. Can you explain what \"this transaction is recorded\" means?",
+        "max": "Understood. Which part would you like me to explain?",
+        "beat": 1
+      },
+      {
+        "customer": "Sorry what does that mean? Can you tell me what the recording part is again?",
+        "max": "As I mentioned, in short, this call is recorded, and I go over your paperwork with you before you sign. Is it okay if we continue?",
+        "beat": 1
+      },
+      {
+        "customer": "Sorry I still don't get it. What does it mean that the call is recorded?",
+        "max": "Which part would you like me to explain?",
+        "beat": 1
+      },
+      {
+        "customer": "Sorry, can you explain what you mean by the call is recorded? I don't understand.",
+        "max": "Got it. Which part would you like me to explain?",
+        "beat": 1
+      },
+      {
+        "customer": "Sorry I don't understand. What do you mean the call is recorded?",
+        "max": "Got it. Is it okay if we continue?",
+        "beat": 1
+      },
+      {
+        "customer": "Sorry what does that mean? Can you explain what continuing means here?",
+        "max": "Okay. Is it okay if we continue?",
+        "beat": 1
+      },
+      {
+        "customer": "it okay",
+        "max": "First I see that you agreed to buy a new 2026 Mazda CX five. A few questions before I prepare the paperwork, have you got the chance to drive the vehicle that you are buying.",
+        "beat": 2
+      },
+      {
+        "customer": "Sorry, what does that mean? I don't get it. Can you say that again?",
+        "max": "Allow me to go over it really quick to make sure that you understand everything. First I see that you agreed to buy a new 2026 Mazda CX five. A few questions before I prepare the paperwork, have you got the chance to drive the vehicle that you are buying.",
+        "beat": 2
+      },
+      {
+        "customer": "Sorry what does that mean? I don't get it. Can you say that again?",
+        "max": "Which part would you like me to explain?",
+        "beat": 2
+      },
+      {
+        "customer": "Which part would you like",
+        "max": "Got it. Which part would you like me to explain?",
+        "beat": 2
+      },
+      {
+        "customer": "part would",
+        "max": "Let me put that more simply. Did you get a chance to take it for a test drive?",
+        "beat": 2
+      },
+      {
+        "customer": "Oh, a test drive? Yeah I did, it was nice. Sorry, what comes next?",
+        "max": "Awesome! When you came back from the test drive, the sales person did the walkaround and showed you all the features, bells, and whistles in the car.",
+        "beat": 3
+      },
+      {
+        "customer": "Sorry what does that mean? I don't get it. Can you say that again?",
+        "max": "Allow me to go over it really quick to make sure that you understand everything. When you came back from the test drive, the sales person did the walkaround and showed you all the features, bells, and whistles in the car.",
+        "beat": 3
+      },
+      {
+        "customer": "Sorry, what does that mean? I don't get it. What's a walkaround?",
+        "max": "Which part would you like me to explain?",
+        "beat": 3
+      },
+      {
+        "customer": "Sorry, what does the walkaround mean? Can you explain that part again?",
+        "max": "Understood. Which part would you like me to explain?",
+        "beat": 3
+      },
+      {
+        "customer": "Sorry I don't get it. Can you explain what a walkaround is?",
+        "max": "Which part would you like me to explain?",
+        "beat": 3
+      },
+      {
+        "customer": "Sorry, can you just explain what the walkaround is? I don't understand.",
+        "max": "Okay. Which part would you like me to explain?",
+        "beat": 3
+      },
+      {
+        "customer": "Sorry what does that mean? Can you explain the walkaround part?",
+        "max": "Which part would you like me to explain?",
+        "beat": 3
+      },
+      {
+        "customer": "Sorry I don't get it. What is a walkaround? Can you explain it slowly?",
+        "max": "Got it. Which part would you like me to explain?",
+        "beat": 3
+      },
+      {
+        "customer": "Sorry, can you explain what a walkaround is? I still don't understand that part.",
+        "max": "Which part would you like me to explain?",
+        "beat": 3
+      },
+      {
+        "customer": "Sorry I don't get it. What is a walkaround exactly?",
+        "max": "Understood. Which part would you like me to explain?",
+        "beat": 3
+      }
+    ],
+    "glitched": 5,
+    "endedBy": "turn limit",
+    "scorecard": {
+      "checks": [
+        {
+          "id": "no_loop",
+          "label": "Max never loops",
+          "severity": "hard",
+          "pass": false,
+          "detail": "said 5 times: \"got it which part would you like me to explain\""
+        },
+        {
+          "id": "varied_reask",
+          "label": "Re-asks are not word for word",
+          "severity": "soft",
+          "pass": false,
+          "detail": "said twice in a row: \"How has your experience been with our team so far?\""
+        },
+        {
+          "id": "few_recoveries",
+          "label": "Rarely has to say he didn't understand",
+          "severity": "soft",
+          "pass": true
+        },
+        {
+          "id": "no_restart",
+          "label": "Never jumps back to the start",
+          "severity": "hard",
+          "pass": true
+        },
+        {
+          "id": "fragment_not_answer",
+          "label": "Fragments are not answers",
+          "severity": "hard",
+          "pass": true
+        },
+        {
+          "id": "price_approved",
+          "label": "Only approved prices, never under $3",
+          "severity": "hard",
+          "pass": true
+        },
+        {
+          "id": "ladder_on_no",
+          "label": "A 'no' to the price gets a lower price",
+          "severity": "hard",
+          "pass": true
+        },
+        {
+          "id": "not_stuck",
+          "label": "Never stuck on one beat",
+          "severity": "soft",
+          "pass": false,
+          "detail": "6 turns on Beat 1"
+        }
+      ],
+      "passed": 5,
+      "failed": 3,
+      "furthestBeat": 3,
+      "reachedPrice": false,
+      "completed": false
+    },
+    "seconds": 48,
+    "understanding": [
+      {
+        "by": "-",
+        "ms": 0
+      },
+      {
+        "by": "-",
+        "ms": 0
+      },
+      {
+        "by": "-",
+        "ms": 0
+      },
+      {
+        "by": "-",
+        "ms": 0
+      },
+      {
+        "by": "-",
+        "ms": 0
+      },
+      {
+        "by": "-",
+        "ms": 0
+      },
+      {
+        "by": "-",
+        "ms": 0
+      },
+      {
+        "by": "-",
+        "ms": 0
+      },
+      {
+        "by": "-",
+        "ms": 1
+      },
+      {
+        "by": "-",
+        "ms": 681
+      },
+      {
+        "by": "-",
+        "ms": 1
+      },
+      {
+        "by": "-",
+        "ms": 1
+      },
+      {
+        "by": "-",
+        "ms": 0
+      },
+      {
+        "by": "-",
+        "ms": 0
+      },
+      {
+        "by": "-",
+        "ms": 1
+      },
+      {
+        "by": "-",
+        "ms": 0
+      },
+      {
+        "by": "-",
+        "ms": 0
+      },
+      {
+        "by": "-",
+        "ms": 557
+      },
+      {
+        "by": "-",
+        "ms": 0
+      },
+      {
+        "by": "-",
+        "ms": 0
+      },
+      {
+        "by": "-",
+        "ms": 0
+      },
+      {
+        "by": "-",
+        "ms": 1
+      },
+      {
+        "by": "-",
+        "ms": 0
+      },
+      {
+        "by": "-",
+        "ms": 0
+      },
+      {
+        "by": "-",
+        "ms": 674
+      },
+      {
+        "by": "-",
+        "ms": 0
+      },
+      {
+        "by": "-",
+        "ms": 0
+      },
+      {
+        "by": "-",
+        "ms": 1
+      },
+      {
+        "by": "-",
+        "ms": 1
+      },
+      {
+        "by": "-",
+        "ms": 0
+      },
+      {
+        "by": "-",
+        "ms": 0
+      },
+      {
+        "by": "ai",
+        "reason": "confused (0.9): Customer asks for simpler explanation and repetition",
+        "ms": 832
+      },
+      {
+        "by": "ai",
+        "reason": "confused (0.9): Customer doesn't understand and asks for simpler explanation",
+        "ms": 710
+      },
+      {
+        "by": "ai",
+        "reason": "confused (0.8): customer expresses not understanding and asks for repetition",
+        "ms": 690
+      },
+      {
+        "by": "-",
+        "ms": 542
+      },
+      {
+        "by": "ai",
+        "reason": "agree (0.9): Answers yes to test drive question",
+        "ms": 667
+      },
+      {
+        "by": "ai",
+        "reason": "confused (0.9): Customer asks for simpler explanation",
+        "ms": 832
+      },
+      {
+        "by": "ai",
+        "reason": "confused (0.9): Customer doesn't understand term and asks for clarification",
+        "ms": 708
+      },
+      {
+        "by": "ai",
+        "reason": "confused (0.85): Customer seeks simpler explanation of walkaround",
+        "ms": 694
+      },
+      {
+        "by": "ai",
+        "reason": "confused (0.9): Customer repeatedly asks for simpler explanation of walkaround",
+        "ms": 1494
+      },
+      {
+        "by": "ai",
+        "reason": "confused (0.9): Customer repeatedly asks for simpler explanation of walkaround",
+        "ms": 730
+      },
+      {
+        "by": "ai",
+        "reason": "confused (0.85): Customer seeks simpler explanation of walkaround",
+        "ms": 783
+      },
+      {
+        "by": "ai",
+        "reason": "confused (0.9): Customer doesn't understand walkaround and asks for simple explanation",
+        "ms": 1092
+      },
+      {
+        "by": "ai",
+        "reason": "confused (0.9): Customer still doesn't understand walkaround",
+        "ms": 799
+      },
+      {
+        "by": "ai",
+        "reason": "confused (0.85): Customer repeatedly says they don't understand",
+        "ms": 641
+      }
+    ],
+    "review": {
+      "aiScore": 3,
+      "callSummary": "Max spent the entire call stuck in an endless loop repeating the recording disclosure and asking 'which part would you like me to explain?' to a confused first-time buyer. The conversation never progressed past the legal disclosure and qualifying questions, ending with the customer still asking for explanations of basic terms like 'walkaround'.",
+      "problemsFound": "• Max repeated the exact same long disclosure paragraph at least 6 times without simplifying or breaking it down despite the customer's many requests for slower or different explanations.\n• After the customer said 'Sorry what does that mean? I don't get it.' more than 15 times, Max continued to reply only with 'Which part would you like me to explain?' creating a repetitive loop.\n• Max failed to adapt to the customer's clear need for plain-language explanations, e.g. never defined 'walkaround' even after the customer asked specifically 8+ times.\n• The 5 intentional recognition glitches (e.g. 'would you like me', 'part would', 'it okay') were met with Max simply repeating the same unhelpful questions instead of rephrasing helpfully.\n• Max never reached any discussion of warranty, breakdowns, or the protection package (only 3 of 25 script beats completed).",
+      "customerSentiment": "Frustrated: customer repeatedly expressed confusion and received no real clarification"
+    }
+  },
+  {
+    "id": "sim-chatty_rambler-2-mwg81sk5",
+    "persona": "chatty_rambler",
+    "turns": [
+      {
+        "customer": "Yeah I can see and hear you just fine Max, the picture's crystal clear. You know my old Honda CRV had such a fuzzy backup camera that I used to joke it was like looking through a snowstorm, but this setup is way better. By the way, how's the weather looking out there today?",
+        "max": "Awesome, great to connect with you! First of all, congratulations on your new vehicle... How has your experience been with our team so far?",
+        "beat": 0
+      },
+      {
+        "customer": "Oh it's been wonderful Max, everybody has been so friendly and patient with me. My brother-in-law bought a Toyota last year and he said their sales guy rushed him through everything, but you all have been the complete opposite. Makes me even more excited about the Mazda. So how's the weather out there today?",
+        "max": "Awesome, so glad to hear that! Our team works really hard to take care of our customers. I'm Max, your finance manager, and I'll be handling your paperwork today. Now before I start, I just want to let you know this transaction is recorded audio and video, also I'm required by the law to go over everything with you before you sign any paperwork to make sure you understand first okay.",
+        "beat": 1
+      },
+      {
+        "customer": "Oh that's perfectly fine with me Max, no problem at all. My old car purchase was so rushed I barely understood half the papers and regretted it later when the warranty stuff came up. My commute is over an hour each way so I really want to make sure I know everything this time, especially with all that traffic on the freeway. How's the weather looking out there today anyway?",
+        "max": "First I see that you agreed to buy a new 2026 Mazda CX five. A few questions before I prepare the paperwork, have you got the chance to drive the vehicle that you are buying.",
+        "beat": 2
+      },
+      {
+        "customer": "Yes I did get to drive it Max and it felt amazing compared to my old Honda. That smooth ride and the quiet cabin made my usual commute feel like a breeze instead of the stop-and-go nightmare it usually is. My brother-in-law keeps telling me his Toyota handles great but I think this Mazda is in another league. So how’s the weather looking out there today?",
+        "max": "Awesome! When you came back from the test drive, the sales person did the walkaround and showed you all the features, bells, and whistles in the car.",
+        "beat": 3
+      },
+      {
+        "customer": "Oh yes he sure did Max, he walked me around that beautiful 2026 CX-5 and showed me every single button and gadget. I kept thinking back to my old Honda that only had half the tech and still managed to get me through those awful commutes with the crazy traffic on the 405. My brother-in-law's Toyota has some similar stuff but nothing beats the way the Mazda feels. So how's the weather out there today anyway?",
+        "max": "Great. What's your understanding of the warranty that comes with the vehicle? Did the sales person go over everything with you?",
+        "beat": 4
+      },
+      {
+        "customer": "Oh yeah the salesperson walked me through the whole warranty pretty well Max. He said the new 2026 Mazda CX-5 comes with a three year or thirty six thousand mile bumper-to-bumper warranty and then a five year or sixty thousand mile powertrain warranty which sounds way better than what I had on my old Honda that left me stranded twice during my long commute. My brother-in-law always brags about his Toyota warranty but I think Mazda's is solid too. So how's the weather looking out there today?",
+        "max": "Thanks for sharing that. Did the sales person go over everything with you?",
+        "beat": 4
+      },
+      {
+        "customer": "Yeah the salesperson really did go over everything with me Max. He spent a long time explaining the warranty, the maintenance schedule, all the safety features, even how the infotainment works with my phone. I remember my old Honda purchase was nothing like that. The guy basically just handed me the keys after I signed. My brother-in-law said the same thing happened when he got his Toyota, they were in and out in twenty minutes. This felt much more thorough and I really appreciate it especially with the terrible traffic I fight every day on my commute. So how's the weather looking out there today",
+        "max": "Thanks for sharing that. Did the sales person go over everything with you?",
+        "beat": 4
+      },
+      {
+        "customer": "Yeah he really went over everything with me Max. I told him about how my old Honda started having electrical gremlins right after the basic warranty ran out and my commute became a nightmare every time it rained. He made sure I understood the Mazda coverage goes way beyond that. My brother-in-law still complains that his Toyota dealer barely explained anything. So how's the weather out there today?",
+        "max": "As I mentioned, thanks for sharing that. Did the sales person go over everything with you?",
+        "beat": 4
+      },
+      {
+        "customer": "Oh absolutely Max he went over every single thing with me in detail. My old Honda never got that kind of attention when I bought it and I ended up stuck on the side of the freeway twice during my commute. My brother-in-law always says the Toyota dealership just pushed him through the paperwork too. So how's the weather looking out there today?",
+        "max": "Thanks for catching that, I'll make a note of your vehicle. Did the sales person go over everything with you?",
+        "beat": 4
+      },
+      {
+        "customer": "Yeah he really did Max, he covered every single thing from the safety features to the maintenance schedule. I remember my old Honda purchase the guy barely explained anything and I got surprised later with repair bills during my long commute. My brother-in-law said his Toyota deal was the same rushed mess. So how's the weather looking out there today?",
+        "max": "Got it. Did the sales person go over everything with you?",
+        "beat": 4
+      },
+      {
+        "customer": "Yes Max the salesperson went over every single detail with me, from the navigation to the blind spot monitoring and even how to connect my phone. My old Honda never had any of that fancy stuff so my commute used to feel like driving blind in that awful traffic. My brother-in-law keeps texting me that his Toyota has similar features but he wishes they had explained it better. So how's the weather out there today?",
+        "max": "Okay. Did the sales person go over everything with you?",
+        "beat": 4
+      },
+      {
+        "customer": "Yeah the salesperson really did go over everything with me in detail Max. My old Honda purchase was nothing like that. I was stuck in traffic every morning wondering why half the buttons didn't work and my brother-in-law said his Toyota deal was just as rushed. So how's the weather out there today?",
+        "max": "Understood. Did the sales person go over everything with you?",
+        "beat": 4
+      },
+      {
+        "customer": "Yes Max he went over everything with me from the head-up display to the lane keep assist. My old Honda had none of that so my long commute through that awful stop-and-go traffic was always stressful. My brother-in-law still complains that when he bought his Toyota they barely explained a thing. So how's the weather looking out there today?",
+        "max": "Gotcha. There is actually more information about the warranty i need to go over with you to make sure you do understand everything.... Is that okay?",
+        "beat": 5
+      },
+      {
+        "customer": "actually more",
+        "max": "Right on. Your manufacturer is like any other manufacturer when they build a vehicle they put warranty in it in your case you get two different warranty not one. The first warranty is five years sixty thousand mile Base limited warranty. The second is ten years hundred thousand mile powertrain which is referring to the engine and the transmission, im sure you and i agree thats a very good complementary warranty from the manufacturer... right?",
+        "beat": 6
+      },
+      {
+        "customer": "Oh yes Max I completely agree that's a really solid warranty, way better than what I had with my old Honda that left me stranded twice during my awful commute. My brother-in-law's Toyota only came with five years sixty thousand on everything so this Mazda coverage sounds much more generous especially for that long drive I do every day. So how's the weather looking out there today?",
+        "max": "but what you do not know that this warranty is a defect only stated in the manual book of the vehicle in the glovebox page number four saying that this warranty from the manufacturer is against any thing that is misdesigned, misbuilt, or misinstalled.... You understand?",
+        "beat": 7
+      },
+      {
+        "customer": "Yeah I understand what you're saying Max, it's only for manufacturing defects like if something was put together wrong at the factory, not for regular wear and tear. That makes sense, my old Honda had something similar and I still ended up paying out of pocket when the AC went out during one of my brutal commutes. My brother-in-law's Toyota warranty worked the same way too. So how's the weather looking out there today?",
+        "max": "Now there is another reason can cause any break down to the vehicle goes under wear and tear im sure you heard that phrase before. Three reasons usually cause the ware and tear. climate, road conditions, and driving habits... especially here in Texas.. Climate... can go over one hundred ten degrees in summer and get very cold in the winter and this can cause a premature to the vehicle and this have a huge impact on the sensor electronic technology engine transmission and cooling system and the AC and so many other parts of the car",
+        "beat": 8
+      },
+      {
+        "customer": "Oh yeah I've definitely heard wear and tear before Max, and you're right, Texas weather is brutal on cars. My old Honda's AC gave out after just three summers of 110-degree heat during my long commute and it cost me a fortune. My brother-in-law's Toyota has had the same issues with the electronics acting up after cold snaps too. So how's the weather looking out there today?",
+        "max": "Also Road conditions specially now days construction are everywhere and uneven service roads and potholes everywhere that can have big impact on the tires RIMS sensor electronic technology, engine transmission cooling system and tons of other parts on the vehicle",
+        "beat": 9
+      },
+      {
+        "customer": "Oh I know exactly what you mean Max. My old Honda was always getting banged up from all those potholes and construction zones on my commute. The tires wore out fast, the alignment was never right, and even the sensors started acting funny. My brother-in-law complains about the same thing with his Toyota every time he hits one of those uneven service roads. So how's the weather looking out there today?",
+        "max": "And finally the Driving habits the way i drive the way you drive in fact the way everyone drives have a huge impact on the vehicle they are driving and those are the main three reasons can cause any break down to the vehicle ninety-five percent of the time when the vehicle break down it due to wear and tear... Are you with me?",
+        "beat": 10
+      },
+      {
+        "customer": "Yes I'm with you Max, that all makes total sense. My old Honda started having so many problems from the crazy way I had to drive it in that stop-and-go traffic every day on my commute, plus all the Texas heat and those terrible potholes. My brother-in-law says the same thing happened with his Toyota even though he babies it. So how's the weather looking out there today?",
+        "max": "And the first thing you do as in owner when the vehicle break down you go to any service place and the first thing the first place will do before they say anything to you by the law they must first diagnose the vehicle to find out what is the problem, once they diagnose the vehicle the manufacturer will step in and they are very cautious.",
+        "beat": 11
+      },
+      {
+        "customer": "Yeah I totally get that Max, my old Honda broke down twice and the dealership always ran that expensive diagnostic first before they'd even talk about the warranty. They were super cautious like you said and half the time the manufacturer denied it because they called it wear and tear from my long commute and all that Texas heat. My brother-in-law went through the exact same headache with his Toyota. So how's the weather looking out there today?",
+        "max": "WHY ? because the manufacturer reserve the right to determine if the break down happen due to any Mis design or mis built or miss installed if they find out the break down happen because of them thats great because they will pay for it igf they find out the break down happen cause of you or the wear and tear unfortunately you will pay for it and like i said before ninety-five percent of the time when the vehicle break down it due to the wear and tear.... Does that make sense?",
+        "beat": 12
+      },
+      {
+        "customer": "Yeah that makes complete sense Max, the manufacturer only covers their own mistakes and pretty much everything else falls on wear and tear so I'd be the one paying. My old Honda left me with a huge bill after they diagnosed it that way during one of my long commutes. My brother-in-law got hit with the same thing on his Toyota last year. So how's the weather looking out there today?",
+        "max": "Thats why we don't feel comfortable that we will leave you in a good position without a good warranty around the vehicle. Why because we do have a part department we know how much the parts cost engine by itself can cost up to seven thousand transmission six thousand AC almost four thousand electronic and technology is the luck of the draw could cost anywhere from hundred dollar all the way up to twelve thousand dollar",
+        "beat": 13
+      },
+      {
+        "customer": "Oh wow Max, those numbers are scary high. My old Honda’s transmission alone was almost $5,000 to fix after the dealership said it was wear and tear from all my stop-and-go commuting and Texas heat. My brother-in-law’s Toyota AC repair was over $3,000 last summer. So yeah, that’s exactly why I want good coverage. How’s the weather looking out there today?",
+        "max": "if God forbid a sensor break down in the screens in the dashboard they cant just change that sensor that sensor is a part of a huge component they will have to take the whole thing out and replace it with a brand new one thats roughly sixty five hundred dollar part up to eighty five hundred dollar part depends on the vehicle thats not even include the labor charge",
+        "beat": 14
+      },
+      {
+        "customer": "Oh man that’s crazy expensive Max, sixty-five to eighty-five hundred dollars just for the dashboard screen and sensor setup? My old Honda had a similar electrical issue once and the repair was already over two grand. My brother-in-law’s Toyota dash cluster went out and it cost him almost six thousand with labor. So how’s the weather looking out there today?",
+        "max": "labor will charge you anywhere between one hundred thirty to one hundred sixty dollars per hour depend on the quality of the technician they are using in the service place and a job like that could take anywhere between ten hours and fifteen hours of labor to fix it so instead you pay seventy hundred dollar for parts plus ten hours and fifteen hoursof labor. NO ABSOLUTELY NOT... You understand?",
+        "beat": 15
+      },
+      {
+        "customer": "Yeah I understand Max, that adds up to a fortune real quick. My old Honda had one of those electrical jobs that took the shop twelve hours at a hundred forty an hour plus the parts and it wiped out my savings. My brother-in-law paid over nine grand for a similar fix on his Toyota last year. So how’s the weather looking out there today?",
+        "max": "Thats why we recommend to you to wrap the true blanket cover warranty around the vehicle which is ten years hundred thousand mile warranty BUMBER TO BUMBER and what i mean by that is a warranty will cover everything in the vehicle as far as engine transmission drive axle four wheel drive the suspension the steering the cooling system the electric the breaks the AC air condition sensors all the electronics and technology and the labor with zero deductible any where you go we kindly asking you to come here when you need to service the car we only get the benefits when you come visit any of our service locations across the metroplex... Are you with me?",
+        "beat": 16
+      },
+      {
+        "customer": "Yes Max I'm with you, that bumper-to-bumper ten years a hundred thousand miles sounds a whole lot better than what I had with my old Honda that left me with huge bills every time something wore out on my long commute. My brother-in-law wishes his Toyota had something like that instead of fighting the dealer every time. So how's the weather looking out there today?",
+        "max": "Also we know that the cost of ownership for you over the next five years will cost you thousands of dollars to maintain the vehicle thats why we include for you five years tire and wheel cover im assuming you will need two sets of tires over the next five years depends on your driving habits so instead you pay for eight tires three hundred and fifty dollar for each tire plus hundred and twenty five dollar installation thats almost five hundred dollar a pice eight of those will cost almost four thousand dollar instead you pay that no the policy will take care of that for you so you don't have to worry about paying that much... Does that make sense?",
+        "beat": 17
+      },
+      {
+        "customer": "Yeah",
+        "max": "We also include for you the five years maintenance package that cover all your full synthetic oil change filters and tire rotation so instead you pay for a hundred twenty five dollar for every oil change plus twenty-nine dollars for filter plus a hundred fourty dollar for tire rotation every time you go to service your vehicle no say good buy to all that",
+        "beat": 18
+      },
+      {
+        "customer": "Oh that sounds really good Max because my old Honda was costing me about a hundred and fifty bucks every oil change plus the filter and rotation on top of that. With my long commute I was going in every four months and it added up fast. My brother-in-law says the same thing about his Toyota maintenance bills. So how's the weather looking out there today?",
+        "max": "Under this policy the only thing you have to worry about is just paying for your GAS and guess what we don't have cover for that",
+        "beat": 19
+      },
+      {
+        "customer": "Haha yeah I figured you wouldn’t cover the gas, Max. With my long commute I burn through a tank every three days so that part’s definitely on me. My brother-in-law’s Toyota drinks even more on the highway. So how’s the weather looking out there today?",
+        "max": "Now let me recap what i just said you get. ten years hundred thousand mile BUMBER TO BUMBER WARRANTY THAT COVERS ALL THE MECHANIC BREAKE DOWN ALL THE ELECTRONIC BREAKE DOWN ALL THE PARTS ALL THE LABOR WITH ZERO deductible you pay nothing out of your pocket every time you fix the vehicle",
+        "beat": 20
+      },
+      {
+        "customer": "Yeah",
+        "max": "You also get the five years tire and wheels cover, cover all the tires and wheels for the next five years and finally your maintenance cover for five years cover all your full synthetic oil change all your filters and tire rotation so you don't have to worry about paying anything in the future and like i said the only thing you have to worry about is paying for your Gas",
+        "beat": 21
+      },
+      {
+        "customer": "Yeah Max I got all that. Ten years bumper-to-bumper on everything with zero deductible, plus five years of tire and wheel coverage and five years of all the maintenance so I’m only paying for gas. Sounds like it would have saved me a ton on my old Honda. My brother-in-law is always complaining about how much his Toyota maintenance and tires cost him. So how’s the weather looking out there today?",
+        "max": "I hear you loud and clear—let's skip straight to your exact bottom line numbers. You can get everything i just mentioned for only four dollars a day a coffee a day and everything is covered in your vehicle not even that a coffee a day from starbucks is eight dollars and sixty cent for less then half a cup of a coffee a day you will get everything covered so you don't have to worry about paying anyone anything in the future",
+        "beat": 22
+      },
+      {
+        "customer": "Yeah Max that sounds pretty reasonable, four dollars a day is basically half a Starbucks coffee and way cheaper than what I ended up paying on my old Honda for all those repairs and maintenance during my long commute. My brother-in-law’s Toyota protection package ended up costing him more than that too. So how’s the weather looking out there today?",
+        "max": "I understand. While four dollars is our standard rate, the best I can offer directly is three dollars and fifty cents a day. Which two coverages are most important to you?",
+        "beat": 23
+      },
+      {
+        "customer": "Oh three fifty a day is even better Max, that’s less than a cheap lunch. Honestly the bumper-to-bumper warranty is the most important one to me because my old Honda left me with huge repair bills every time something broke during those awful commutes. The maintenance package is second because I hate paying for oil changes every few months. My brother-in-law’s Toyota still costs him a fortune on both. So how’s the weather looking out there today?",
+        "max": "I want to make sure you get the right coverage. I can bring that down to three dollars and twenty-five cents a day. Does that sound fair?",
+        "beat": 23
+      },
+      {
+        "customer": "down to three dollars and",
+        "max": "To make this work for you, three dollars a day is our absolute hard floor for full vehicle protection. Are you ready to finalize at three dollars a day?",
+        "beat": 23
+      },
+      {
+        "customer": "Yeah three dollars a day is fine with me Max, let’s go ahead and do it. My old Honda cost me way more than that every year in repairs and maintenance with that terrible commute traffic, so this feels like a smart move. My brother-in-law is gonna be jealous when I tell him. So how’s the weather looking out there today?",
+        "max": "Great, so to confirm, we're moving forward with full vehicle protection for three dollars a day on your new vehicle.... Are you ready to finalize?",
+        "beat": 24
+      },
+      {
+        "customer": "Yeah Max I’m ready to finalize it at three dollars a day. Let’s get this wrapped up. My old Honda used to nickel-and-dime me to death on that long commute and I don’t want to go through that again. My brother-in-law will probably ask me for the details later. So how’s the weather looking out there today?",
+        "max": "Now that we've confirmed your paperwork, let me quickly verify your full legal name, spelling, and current mailing address before final signature.",
+        "beat": 25
+      },
+      {
+        "customer": "Yes Max, my full legal name is Jennifer Marie Thompson, spelled J-E-N-N-I-F-E-R space M-A-R-I-E space T-H-O-M-P-S-O-N. My current mailing address is 1427 Oak Grove Lane, Apartment 214, Dallas, Texas 75248. \n\nMy old Honda was registered at the same place and every time I moved the paperwork was such a headache. My brother-in-law still laughs about how his Toyota title took six weeks to show up at his house. So how’s the weather looking out there today?",
+        "max": "Everything on your paperwork is all set and finalized. Congratulations on your new vehicle, and enjoy the ride!",
+        "beat": 25
+      }
+    ],
+    "glitched": 4,
+    "endedBy": "max",
+    "scorecard": {
+      "checks": [
+        {
+          "id": "no_loop",
+          "label": "Max never loops",
+          "severity": "hard",
+          "pass": true
+        },
+        {
+          "id": "varied_reask",
+          "label": "Re-asks are not word for word",
+          "severity": "soft",
+          "pass": false,
+          "detail": "said twice in a row: \"Thanks for sharing that. Did the sales person go over everything with you?\""
+        },
+        {
+          "id": "few_recoveries",
+          "label": "Rarely has to say he didn't understand",
+          "severity": "soft",
+          "pass": true
+        },
+        {
+          "id": "no_restart",
+          "label": "Never jumps back to the start",
+          "severity": "hard",
+          "pass": true
+        },
+        {
+          "id": "fragment_not_answer",
+          "label": "Fragments are not answers",
+          "severity": "hard",
+          "pass": true
+        },
+        {
+          "id": "price_approved",
+          "label": "Only approved prices, never under $3",
+          "severity": "hard",
+          "pass": true
+        },
+        {
+          "id": "ladder_on_no",
+          "label": "A 'no' to the price gets a lower price",
+          "severity": "hard",
+          "pass": true
+        },
+        {
+          "id": "not_stuck",
+          "label": "Never stuck on one beat",
+          "severity": "soft",
+          "pass": false,
+          "detail": "6 turns on Beat 4"
+        }
+      ],
+      "passed": 6,
+      "failed": 2,
+      "furthestBeat": 25,
+      "reachedPrice": true,
+      "completed": true
+    },
+    "seconds": 56,
+    "understanding": [
+      {
+        "by": "-",
+        "ms": 0
+      },
+      {
+        "by": "-",
+        "ms": 0
+      },
+      {
+        "by": "-",
+        "ms": 2
+      },
+      {
+        "by": "ai",
+        "reason": "agree (0.9): Answers yes/no question positively with story",
+        "ms": 625
+      },
+      {
+        "by": "ai",
+        "reason": "agree (0.9): Positive yes to walkaround question",
+        "ms": 612
+      },
+      {
+        "by": "ai",
+        "reason": "story_or_comment (0.85): shares past experience and opinion on warranty",
+        "ms": 927
+      },
+      {
+        "by": "ai",
+        "reason": "story_or_comment (0.85): positive story about experience, ends with unrelated question",
+        "ms": 717
+      },
+      {
+        "by": "ai",
+        "reason": "story_or_comment (0.85): Shares past car story and family remark",
+        "ms": 672
+      },
+      {
+        "by": "-",
+        "ms": 0
+      },
+      {
+        "by": "ai",
+        "reason": "story_or_comment (0.85): Shares stories and remarks, ends with unrelated question",
+        "ms": 671
+      },
+      {
+        "by": "ai",
+        "reason": "story_or_comment (0.85): affirmative answer wrapped in long story and remark",
+        "ms": 659
+      },
+      {
+        "by": "ai",
+        "reason": "story_or_comment (0.85): affirmative answer wrapped in story and off-topic remark",
+        "ms": 769
+      },
+      {
+        "by": "ai",
+        "reason": "agree (0.85): Repeatedly affirms salesperson covered everything",
+        "ms": 633
+      },
+      {
+        "by": "-",
+        "ms": 606
+      },
+      {
+        "by": "ai",
+        "reason": "agree (0.85): Positive agreement on warranty plus story",
+        "ms": 654
+      },
+      {
+        "by": "ai",
+        "reason": "story_or_comment (0.85): paraphrases understanding then tells story and changes topic",
+        "ms": 751
+      },
+      {
+        "by": "ai",
+        "reason": "story_or_comment (0.85): Shares personal car stories and weather remark",
+        "ms": 600
+      },
+      {
+        "by": "ai",
+        "reason": "story_or_comment (0.85): Shares personal story about potholes and car damage",
+        "ms": 701
+      },
+      {
+        "by": "ai",
+        "reason": "story_or_comment (0.85): agrees then shares story and unrelated question",
+        "ms": 626
+      },
+      {
+        "by": "ai",
+        "reason": "story_or_comment (0.85): Personal anecdote plus unrelated weather question",
+        "ms": 635
+      },
+      {
+        "by": "ai",
+        "reason": "story_or_comment (0.85): agrees then tells personal repair stories",
+        "ms": 693
+      },
+      {
+        "by": "ai",
+        "reason": "story_or_comment (0.85): Shares repair stories and agrees with need for coverage",
+        "ms": 631
+      },
+      {
+        "by": "ai",
+        "reason": "story_or_comment (0.85): Shares repair stories then unrelated weather question",
+        "ms": 641
+      },
+      {
+        "by": "ai",
+        "reason": "story_or_comment (0.85): agrees then shares repair stories",
+        "ms": 678
+      },
+      {
+        "by": "ai",
+        "reason": "agree (0.85): Positive yes to question plus story",
+        "ms": 650
+      },
+      {
+        "by": "-",
+        "ms": 0
+      },
+      {
+        "by": "ai",
+        "reason": "story_or_comment (0.85): Shares personal maintenance story and family remark",
+        "ms": 1320
+      },
+      {
+        "by": "ai",
+        "reason": "story_or_comment (0.85): Casual remark and personal anecdote, not a question",
+        "ms": 863
+      },
+      {
+        "by": "-",
+        "ms": 0
+      },
+      {
+        "by": "-",
+        "ms": 0
+      },
+      {
+        "by": "-",
+        "ms": 1
+      },
+      {
+        "by": "-",
+        "ms": 0
+      },
+      {
+        "by": "-",
+        "ms": 0
+      },
+      {
+        "by": "-",
+        "ms": 1
+      },
+      {
+        "by": "-",
+        "ms": 1
+      },
+      {
+        "by": "-",
+        "ms": 0
+      }
+    ],
+    "review": {
+      "aiScore": 8,
+      "callSummary": "Max followed the full script through all 25 beats despite the customer's constant weather questions and rambling stories. The call ended successfully with the customer agreeing to the $3/day protection package and providing her details for finalization.",
+      "problemsFound": "• Max ignored the customer's repeated 'how's the weather' questions 15+ times without any acknowledgment\n• Max asked 'Did the sales person go over everything with you?' 9 times in a row with almost identical phrasing, sounding like a broken record\n• Max continued the exact same warranty explanation script even after the customer glitched with 'actually more' and did not adapt\n• Several customer lines contained obvious speech-recognition glitches (e.g. 'actually more', 'down to three dollars and') that Max never addressed or clarified",
+      "customerSentiment": "Positive: Customer was engaged, agreeable and closed easily"
+    }
+  }
+]
