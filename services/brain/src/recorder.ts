@@ -39,17 +39,30 @@ export interface EndRecord {
   finalized: boolean;
 }
 
+export interface RecordingRecord {
+  storageKey: string;
+  durationS: number;
+  bytes: number;
+  format: string;
+  sha256: string;
+  keyId: string;
+  keyWrapped: string;
+  nonce: string;
+}
+
 export interface CallRecorder {
   started(key: string, dealershipId: string, versions: { script: string | null; price: string | null; kb: string | null } | null, dealId?: string | null): void;
   turn(key: string, dealershipId: string, t: TurnRecord): void;
   committed(key: string, turnId: number, heard: boolean, fractionHeard: number, timings?: Record<string, unknown>): void;
   ended(key: string, dealershipId: string, e: EndRecord): void;
+  /** The call's encrypted recording; resolves true when stored (the call has a consent time) */
+  recorded(key: string, dealershipId: string, r: RecordingRecord): Promise<boolean>;
   /** Waits for queued writes (tests, shutdown) */
   flush(key?: string): Promise<void>;
 }
 
 /** File-config dealerships (development): no database, nothing recorded */
-export const noRecorder: CallRecorder = { started() {}, turn() {}, committed() {}, ended() {}, flush: async () => {} };
+export const noRecorder: CallRecorder = { started() {}, turn() {}, committed() {}, ended() {}, recorded: async () => false, flush: async () => {} };
 
 const norm = (t: string) => t.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 
@@ -84,7 +97,7 @@ export class PgCallRecorder implements CallRecorder {
     private readonly opts: { fetchImpl?: typeof fetch; now?: () => number; webhookRetryMs?: number[] } = {}
   ) {}
 
-  private enqueue(key: string, what: string, fn: (tx: Queryable) => Promise<void>): void {
+  private enqueue(key: string, what: string, fn: (tx: Queryable) => Promise<void>): Promise<void> {
     const prev = this.queues.get(key) ?? Promise.resolve();
     const next = prev
       .then(() => asService(this.db, "brain_service", fn))
@@ -93,6 +106,7 @@ export class PgCallRecorder implements CallRecorder {
     void next.finally(() => {
       if (this.queues.get(key) === next) this.queues.delete(key);
     });
+    return next;
   }
 
   started(key: string, dealershipId: string, versions: { script: string | null; price: string | null; kb: string | null } | null, dealId: string | null = null): void {
@@ -230,6 +244,22 @@ export class PgCallRecorder implements CallRecorder {
     }
     console.error(JSON.stringify({ event: "webhook_failed", error }));
     return { ok: false, error };
+  }
+
+  /**
+   * After the call's other records (same queue, so its consent time is written first). Without a consent
+   * time the database queues the uploaded file for deletion instead of storing it.
+   */
+  recorded(key: string, dealershipId: string, r: RecordingRecord): Promise<boolean> {
+    let stored = false;
+    const done = this.enqueue(key, "recording", async (tx) => {
+      const res = await tx.query<{ stored: boolean }>(
+        "select app.add_recording($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) as stored",
+        [key, dealershipId, r.storageKey, r.durationS, r.bytes, r.format, r.sha256, r.keyId, r.keyWrapped, r.nonce]
+      );
+      stored = Boolean(res.rows[0]?.stored);
+    });
+    return done.then(() => stored);
   }
 
   async flush(key?: string): Promise<void> {

@@ -22,7 +22,7 @@ export default async function CallDetail({ params, searchParams }: { params: Pro
   const { id, callId } = await params;
   const search = await searchParams;
   const db = portalDb();
-  const [dealership, { call, turns, review }, can] = await Promise.all([
+  const [dealership, { call, turns, review, recording }, can] = await Promise.all([
     getDealership(db, person.id, id),
     getCall(db, person.id, id, decodeURIComponent(callId)),
     permissions(db, person.id, id),
@@ -68,6 +68,21 @@ export default async function CallDetail({ params, searchParams }: { params: Pro
             )}
           </div>
         </>
+      )}
+
+      <h2>Recording</h2>
+      {recording ? (
+        <div className="panel">
+          <audio controls preload="none" src={`/d/${id}/calls/${encodeURIComponent(call.id)}/recording`} style={{ width: "100%" }} />
+          <p className="muted">
+            {recording.duration_s ? `${Math.round(Number(recording.duration_s))} s · ` : ""}customer on the left, Max on the right · kept until{" "}
+            {fmt(recording.retention_until)} · every playback is in the audit log
+          </p>
+        </div>
+      ) : (
+        <p className="muted">
+          {call.consent_at ? "No recording for this call (recordings not set up, or the upload failed)." : "Not recorded: the customer did not consent to recording."}
+        </p>
       )}
 
       <h2>Transcript</h2>

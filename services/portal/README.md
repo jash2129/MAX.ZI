@@ -54,6 +54,13 @@ It goes through the gate and approval like any change. The demo's old `pricing.j
 used: it says "7-Year" bumper-to-bumper, while the approved script says ten years, and the screen and
 Max's voice must never disagree.
 
+## Call recordings
+
+The call inspector plays a call's recording (customer left, Max right) for people of the dealership.
+`/d/<dealership>/calls/<call>/recording` checks access in the database, writes the playback to the
+audit log, fetches the encrypted file, and decrypts it in memory with `RECORDING_PRIVATE_KEY`. Nothing
+is cached. A call without consent has no recording, and the page says so.
+
 ## Sign-in
 
 Better Auth, self-hosted in this app. Neon's managed auth has no two-factor yet; Neon suggests this
@@ -79,6 +86,7 @@ setup for that case.
 | `BETTER_AUTH_SECRET` | 32+ random bytes |
 | `PORTAL_URL` | e.g. `https://portal.example.com` (used for invite links and cookies) |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`, `MICROSOFT_CLIENT_ID` / `MICROSOFT_CLIENT_SECRET` / `MICROSOFT_TENANT_ID` | optional |
+| `RECORDING_PRIVATE_KEY`, `S3_ENDPOINT`, `S3_BUCKET`, `S3_REGION`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | optional: playing call recordings (`npm run recording-keys` in control-plane; `../DEPLOY-RENDER.md`, "Recordings") |
 
 Do not set Max's AI switches (`MAX_SPEECH`, `MAX_UNDERSTANDING`, `MAX_MODE`) here: the release gate
 must run on the rule-based controller.

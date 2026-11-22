@@ -26,6 +26,7 @@ customer mic (Daily room)
 | `max_worker/turn_start.py`, `policy.py` | The demo's tuned barge-in rule, ported as-is: backchannels never cut Max off; in a line's first 1.5 s only a stop word does; after that, a stop phrase or 4+ words. While Max is silent, any speech starts the turn at once. |
 | `max_worker/delivery.py` | How much of a reply was played when Max was cut off: `heard` is true from 80%, the same rule as the demo. |
 | `max_worker/avatar.py` | LiveAvatar with a fallback. If the avatar fails to start, stops sending media for 3 s, or doesn't speak back within 4 s of being sent speech, Max's audio goes straight to the room. The browser gets `{"event":"avatar.state","state":"unavailable"}` and shows the still image. |
+| `max_worker/recording.py` | Call recordings: stereo (customer left, Max right), 16 kHz, to a temporary file. After the call, kept only if the brain says the customer consented: FLAC, encrypted with a fresh AES-256-GCM key wrapped by `RECORDING_PUBLIC_KEY` (this worker can't decrypt), uploaded to `S3_*`, then recorded by the brain. Without consent the file is deleted and nothing leaves the machine. Not configured: calls aren't recorded. |
 | `max_worker/brain_client.py` | HTTP client for the brain. If the brain can't be reached, Max says "Sorry, could you say that one more time?", never silence. |
 
 ## Data channel events (to the browser)
@@ -65,9 +66,11 @@ network to the customer. Measuring that end to end is the next step: it needs a 
 .venv/Scripts/python -m pytest
 ```
 
-78 tests, offline. `tests/test_brain_processor.py` starts the real brain service (Node) and runs the
+92 tests, offline. `tests/test_brain_processor.py` starts the real brain service (Node) and runs the
 processor in a real Pipecat pipeline against it. Covered: speaking, committing, interruption,
-rollback with "yeah" resuming, speculative turns ignored, and brain down. Live audio, Deepgram,
+rollback with "yeah" resuming, speculative turns ignored, and brain down. `tests/test_recording.py`:
+consent gate, encryption, a recording through a real Pipecat processor, and the portal's Node code
+decrypting what this worker encrypted. Live audio, Deepgram,
 Daily and HeyGen are not exercised by the tests; they need keys and a real call.
 
 ## Status and known gaps
@@ -80,8 +83,10 @@ Daily and HeyGen are not exercised by the tests; they need keys and a real call.
   logs the customer's room token. Daily is a fourth vendor to add to the sub-processor list.
 - **Sandbox avatar.** `HEYGEN_SANDBOX=true` asks HeyGen for a sandbox session, but the sandbox avatar
   ID has not been confirmed. Set `HEYGEN_AVATAR_ID` to the one in your HeyGen dashboard.
-- **Recording** (PRD: stored per call, encrypted) is not done yet. Daily can record the room
-  (`enable_recording`), but this belongs with the call records phase: consent timestamp, storage and
-  retention.
+- **Recording is audio only.** The disclosure says the transaction "is recorded audio and video";
+  only audio is kept. Have the wording checked by counsel either way.
+- **Recording starts when the customer joins**, before consent, to a temporary file on this machine
+  only. It is deleted at the end unless the customer consented. If the worker crashes mid-call, the
+  temporary file is left in the container's temp directory until the container restarts.
 - **Docker images** are written but untested here (no Docker on this machine). The brain image's
   layout was reproduced and run locally.

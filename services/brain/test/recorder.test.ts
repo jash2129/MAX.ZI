@@ -193,3 +193,68 @@ describe("calls from the deal intake API", () => {
     expect((await call({ dealership_id: "demo-mazda", call_id: "deal-4", deal_id: "not-a-uuid" })).status).toBe(404);
   });
 });
+
+describe("recordings", () => {
+  const meta = (dealership: string, call: string) => ({
+    dealership_id: dealership,
+    call_id: call,
+    storage_key: `${dealership}/2026/11/${call}.flac.enc`,
+    duration_s: 312.46,
+    bytes: 1_234_567,
+    format: "flac",
+    sha256: "a".repeat(64),
+    key_id: "0123456789abcdef",
+    key_wrapped: Buffer.alloc(384, 7).toString("base64"),
+    nonce: Buffer.alloc(12, 1).toString("base64"),
+  });
+
+  it("/end says whether the customer consented (passed the Beat 1 disclosure); only then is a recording stored", async () => {
+    await playCall("demo-mazda", "rec-r1");
+    const end = await (await post("/end", { dealership_id: "demo-mazda", call_id: "rec-r1", reason: "script_complete" })).json();
+    expect(end).toEqual({ ok: true, consent: true });
+    const res = await post("/recordings", meta("demo-mazda", "rec-r1"));
+    expect(await res.json()).toEqual({ stored: true });
+    const [r] = (await db.query<any>("select * from recording where call_id = 'demo-mazda:rec-r1'")).rows;
+    expect(r).toMatchObject({ storage_key: "demo-mazda/2026/11/rec-r1.flac.enc", format: "flac", key_id: "0123456789abcdef", sha256: "a".repeat(64) });
+    expect(Number(r.duration_s)).toBe(312.5);
+    const days = (new Date(r.retention_until).getTime() - Date.now()) / 86_400_000;
+    expect(days).toBeGreaterThan(89.9);
+    expect(days).toBeLessThan(90.1);
+  });
+
+  it("no consent: /end says so, and a recording sent anyway is not stored but queued for deletion", async () => {
+    await post("/calls", { dealership_id: "demo-mazda", call_id: "rec-r2" });
+    await post("/turn", { dealership_id: "demo-mazda", call_id: "rec-r2", turn_id: 1, transcript: "Yes I can hear you" });
+    const end = await (await post("/end", { dealership_id: "demo-mazda", call_id: "rec-r2", reason: "customer_left" })).json();
+    expect(end.consent).toBe(false);
+    expect(await (await post("/recordings", meta("demo-mazda", "rec-r2"))).json()).toEqual({ stored: false });
+    expect((await db.query("select * from recording where call_id = 'demo-mazda:rec-r2'")).rows).toHaveLength(0);
+    const queued = await db.query<any>("select reason from storage_deletion where storage_key = 'demo-mazda/2026/11/rec-r2.flac.enc'");
+    expect(queued.rows[0].reason).toMatch(/no consent/);
+  });
+
+  it("a storage key outside the dealership, or bad fields, are refused", async () => {
+    const m = meta("demo-mazda", "rec-r1");
+    expect((await post("/recordings", { ...m, storage_key: "demo-hyundai/2026/11/x.flac.enc" })).status).toBe(400);
+    expect((await post("/recordings", { ...m, storage_key: "demo-mazda/../demo-hyundai/x" })).status).toBe(400);
+    expect((await post("/recordings", { ...m, sha256: "nope" })).status).toBe(400);
+    expect((await post("/recordings", { ...m, key_wrapped: "<script>" })).status).toBe(400);
+  });
+
+  it("another dealership's call id cannot get a recording", async () => {
+    expect(await (await post("/recordings", meta("demo-hyundai", "rec-r1"))).json()).toEqual({ stored: false });
+  });
+
+  it("the brain's login can only add recordings through the function (no direct insert, no reading the queue)", async () => {
+    await expect(records("insert into recording (call_id, dealership_id, storage_key, retention_until) values ('demo-mazda:rec-r2', 'demo-mazda', 'demo-mazda/x', now())")).rejects.toThrow();
+    await expect(records("select * from recording")).rejects.toThrow(/permission denied/);
+    await expect(records("select * from storage_deletion")).rejects.toThrow(/permission denied/);
+  });
+
+  it("deleting a recording (retention, deletion on request) queues its file", async () => {
+    await asUser(db, owner, (tx) => tx.query("select app.forget_call('demo-mazda:rec-r1')"));
+    expect((await db.query("select * from recording where call_id = 'demo-mazda:rec-r1'")).rows).toHaveLength(0);
+    const q = await db.query<any>("select reason from storage_deletion where storage_key = 'demo-mazda/2026/11/rec-r1.flac.enc'");
+    expect(q.rows[0].reason).toBe("recording deleted");
+  });
+});

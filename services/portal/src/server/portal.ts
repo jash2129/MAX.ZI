@@ -455,7 +455,38 @@ export async function getCall(db: Db, userId: string, dealershipId: string, call
       )
     ).rows;
     const review = (await tx.query<any>("select score, summary, problems, compliance_checks, created_at from call_review where call_id = $1", [callId])).rows[0] ?? null;
-    return { call, turns, review };
+    const recording =
+      (await tx.query<RecordingInfo>("select duration_s, bytes, format, created_at, retention_until from recording where call_id = $1", [callId])).rows[0] ?? null;
+    return { call, turns, review, recording };
+  });
+}
+
+export interface RecordingInfo {
+  duration_s: string | null;
+  bytes: string | null;
+  format: string;
+  created_at: string;
+  retention_until: string;
+}
+
+/**
+ * A call's recording, to play it: its storage key and decryption metadata (only for people of the
+ * dealership, by row-level security). Writes the playback to the audit log first, in the same
+ * transaction: no audit entry, no recording. `audit: false` only for the player's later pieces of the
+ * same playback.
+ */
+export async function openRecording(db: Db, userId: string, dealershipId: string, callId: string, opts: { audit?: boolean } = {}) {
+  return run(db, userId, async (tx) => {
+    const r = (
+      await tx.query<{ storage_key: string; key_id: string | null; key_wrapped: string | null; nonce: string | null; sha256: string | null; format: string }>(
+        "select storage_key, key_id, key_wrapped, nonce, sha256, format from recording where call_id = $1 and dealership_id = $2",
+        [callId, dealershipId]
+      )
+    ).rows[0];
+    if (!r || !r.key_id || !r.key_wrapped || !r.nonce || !r.sha256) throw new PortalError("This call has no recording, or you don't have access to it.");
+    // The player asks for the file in pieces (seeking): one entry per playback, at its start
+    if (opts.audit !== false) await tx.query("select app.note_recording_access($1)", [callId]);
+    return { storageKey: r.storage_key, keyId: r.key_id, keyWrapped: r.key_wrapped, nonce: r.nonce, sha256: r.sha256, format: r.format };
   });
 }
 

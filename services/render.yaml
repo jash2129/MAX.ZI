@@ -76,6 +76,20 @@ services:
         sync: false
       - key: TTS_VOICE
         value: aura-2-arcas-en
+      # Call recordings (kept only with consent, encrypted; services/DEPLOY-RENDER.md "Recordings").
+      # Leave all unset and calls are not recorded. The worker gets the PUBLIC key only.
+      - key: RECORDING_PUBLIC_KEY
+        sync: false
+      - key: S3_ENDPOINT
+        sync: false
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_REGION
+        sync: false
+      - key: S3_ACCESS_KEY_ID
+        sync: false
+      - key: S3_SECRET_ACCESS_KEY
+        sync: false
 
   # The admin portal. Sign-in and invite links use the address Render gives it (RENDER_EXTERNAL_URL)
   # unless PORTAL_URL is set (a custom domain).
@@ -110,6 +124,19 @@ services:
           type: web
           name: max-voice-worker
           envVarKey: WORKER_TOKEN
+      # Call recordings playback: the PRIVATE key (only here) and read access to the same bucket
+      - key: RECORDING_PRIVATE_KEY
+        sync: false
+      - key: S3_ENDPOINT
+        sync: false
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_REGION
+        sync: false
+      - key: S3_ACCESS_KEY_ID
+        sync: false
+      - key: S3_SECRET_ACCESS_KEY
+        sync: false
       # Optional: Google / Microsoft sign-in for invited emails
       - key: GOOGLE_CLIENT_ID
         sync: false
@@ -120,7 +147,8 @@ services:
       - key: MICROSOFT_CLIENT_SECRET
         sync: false
 
-  # Hourly maintenance: abandoned calls closed, expired deals deleted, transcript retention enforced
+  # Hourly maintenance: abandoned calls closed, expired deals deleted, transcript and recording retention
+  # enforced, and deleted recordings' files removed from storage
   - type: cron
     name: max-maintain
     runtime: node
@@ -137,4 +165,15 @@ services:
       # The database OWNER's direct (unpooled) connection: maintenance works across all dealerships.
       # services/control-plane/.env.local, DATABASE_URL_UNPOOLED.
       - key: DATABASE_URL_UNPOOLED
+        sync: false
+      # Recording files to delete (retention, deletion on request, no consent): delete access to the bucket
+      - key: S3_ENDPOINT
+        sync: false
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_REGION
+        sync: false
+      - key: S3_ACCESS_KEY_ID
+        sync: false
+      - key: S3_SECRET_ACCESS_KEY
         sync: false

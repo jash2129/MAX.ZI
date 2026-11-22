@@ -88,12 +88,23 @@ class BrainClient:
     async def reprompt(self, kind: str) -> str:
         return str((await self._post("/reprompt", {"kind": kind})).get("text", ""))
 
-    async def end(self, reason: str = "ended") -> None:
-        """Ends the call in the brain, which then writes its outcome, review and webhook."""
+    async def end(self, reason: str = "ended") -> bool:
+        """Ends the call in the brain, which then writes its outcome, review and webhook. Returns whether
+        the customer consented to recording (passed the Beat 1 disclosure); False if the brain can't say."""
         try:
-            await self._post("/end", {"reason": reason})
+            return bool((await self._post("/end", {"reason": reason})).get("consent", False))
         except BrainError:
-            pass  # state expires in Redis anyway
+            return False  # state expires in Redis anyway; without a clear yes, nothing is kept
+
+    async def recording(self, meta: dict[str, Any]) -> bool:
+        """The call's encrypted recording, after /end. True when the brain stored it."""
+        try:
+            res = await self._http.post("/recordings", json={**self._ids(), **meta}, timeout=30.0)
+        except httpx.HTTPError as e:
+            raise BrainError(f"/recordings: {e!r}") from e
+        if res.status_code != 200:
+            raise BrainError(f"/recordings: HTTP {res.status_code} {res.text[:200]}")
+        return bool(res.json().get("stored", False))
 
     async def aclose(self) -> None:
         await self._http.aclose()

@@ -23,6 +23,8 @@ from fastapi import FastAPI, Header, HTTPException
 from loguru import logger
 from pydantic import BaseModel, Field
 
+from .recording import RecordingSettings, recording_settings_from_env
+
 ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 UUID_PATTERN = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
 ROOM_TTL_S = 60 * 60
@@ -54,6 +56,8 @@ class Settings:
     avatar_id: str | None
     avatar_sandbox: bool
     tts_voice: str
+    # Call recordings (recording.py): None = calls are not recorded
+    recording: RecordingSettings | None = None
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -75,6 +79,7 @@ class Settings:
             avatar_id=os.getenv("HEYGEN_AVATAR_ID", "").strip() or None,
             avatar_sandbox=os.getenv("HEYGEN_SANDBOX", "").lower() in ("1", "true", "yes"),
             tts_voice=os.getenv("TTS_VOICE", "aura-2-arcas-en"),
+            recording=recording_settings_from_env(),
         )
 
 
@@ -188,6 +193,7 @@ def create_app(settings: Settings, rooms: RoomProvider | None = None, runner=Non
             tts_voice=settings.tts_voice,
             deal=deal,
             deal_id=body.deal_id,
+            recording=settings.recording,
         )
 
         async def guarded():

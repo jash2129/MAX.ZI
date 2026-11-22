@@ -77,7 +77,13 @@ All `.env*` files are git-ignored. On a host, set the same variables as secrets.
     PRD's compliance checks), usage minutes, and a signed webhook to the dealership.
   - In the portal: a 30-day dashboard (calls, completion, price reached, take rate, average rate,
     latency median and 90th percentile, compliance failures), the calls list, and the call inspector.
-  - Not yet: recordings and the AI review (summary and sentiment).
+  - Done: **recordings.** Recorded on the voice worker (customer left, Max right) and kept only if the
+    customer got past the Beat 1 disclosure; the database checks the consent time again. Encrypted
+    with a per-recording key wrapped by a public key: the worker can't read recordings back, only the
+    portal's private key can. Any S3-compatible bucket, by dealership. Played in the call inspector,
+    every playback audited. Retention and deletion on request delete the row at once and the file at
+    the next maintenance run. Needs a bucket and `npm run recording-keys` (DEPLOY-RENDER.md).
+  - Not yet: the AI review (summary and sentiment).
 - **Phase 5, onboarding and integrations:**
   - Dealerships are created in the portal without code: drafts are copied from a template, then go
     through the gate and approval.
@@ -86,8 +92,7 @@ All `.env*` files are git-ignored. On a host, set the same variables as secrets.
     dealership's deal is refused.
   - Maintenance: abandoned calls closed, expired deals deleted, transcript and recording retention per
     dealership. Deletion on request from the call viewer.
-  - Next: deploying to production (migrations 007-009, logins, hosting), recordings, and the first
-    live call to measure latency. These need your accounts and keys.
+  - Next: the first live call to measure latency. It needs your accounts and keys.
   - Open question (yours to decide): a lowball under the floor ("can you do two dollars?") gets the
     floor at once, skipping steps. That's the demo's existing TXM-approved behavior; read strictly,
     the PRD's "one step down per refusal" would forbid it.

@@ -5,7 +5,7 @@ FROM node:24-slim
 WORKDIR /app
 # The controller (release gate) and the control plane's database helpers, as the portal imports them
 COPY tavus-avatar/src/lib ./tavus-avatar/src/lib
-COPY services/control-plane/src/db.ts ./services/control-plane/src/db.ts
+COPY services/control-plane/src/db.ts services/control-plane/src/storage.ts services/control-plane/src/recording-crypto.ts ./services/control-plane/src/
 # The controller's `import "server-only"` resolves upward from tavus-avatar/src/lib
 RUN npm install --prefix /app --no-save --no-audit --no-fund server-only@0.0.1
 

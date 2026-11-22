@@ -25,7 +25,8 @@ import { ID_PATTERN, type ConfigSource, type DealSource, type DealershipConfig }
  *   POST /turn     {call_id, dealership_id, turn_id, transcript} -> NDJSON: early*, then final
  *   POST /commit   {call_id, dealership_id, turn_id, heard, fraction_heard} -> {rolled_back}
  *   POST /reprompt {call_id, dealership_id, kind}             -> {text}
- *   POST /end      {call_id, dealership_id}                   -> {ok}
+ *   POST /end      {call_id, dealership_id, reason?}          -> {ok, consent}
+ *   POST /recordings {call_id, dealership_id, storage_key, ...}  -> {stored}  (the encrypted recording, after /end)
  *   GET  /health
  */
 
@@ -312,10 +313,41 @@ export function createBrain(opts: BrainOptions) {
           finalized: !state.package_declined && (Boolean(state.finalize_confirmed) || state.delivered_beats.includes(24)),
         });
       }
+      // Consent to recording = the customer got past the Beat 1 disclosure. The voice worker keeps the
+      // call's audio only when this is true (the database checks it again before storing a recording).
+      const consent = Boolean(state && (state.current_beat >= 2 || state.delivered_beats.some((b) => b >= 2)));
       // Redis copies expire on their own (2 h); this frees this process's memory now
       resetCallState(key);
-      return json({ ok: true });
+      return json({ ok: true, consent });
     });
+  }
+
+  /** The voice worker uploaded the call's encrypted recording; the database stores it only with consent */
+  async function recording(body: Json): Promise<Response> {
+    const { key, dealershipId } = keyOf(body);
+    const str = (k: string, re: RegExp) => {
+      const v = body[k];
+      if (typeof v !== "string" || !re.test(v)) throw new HttpError(400, `${k} is invalid`);
+      return v;
+    };
+    const storageKey = str("storage_key", /^[a-z0-9_-]{1,64}\/[A-Za-z0-9_\-./:]{1,200}$/);
+    if (!storageKey.startsWith(`${dealershipId}/`) || storageKey.includes("..")) throw new HttpError(400, "storage_key must start with the dealership");
+    const num = (k: string) => {
+      const v = Number(body[k]);
+      if (!Number.isFinite(v) || v < 0) throw new HttpError(400, `${k} is invalid`);
+      return v;
+    };
+    const stored = await recorder.recorded(key, dealershipId, {
+      storageKey,
+      durationS: Math.round(num("duration_s") * 10) / 10,
+      bytes: Math.round(num("bytes")),
+      format: str("format", /^[a-z0-9]{2,10}$/),
+      sha256: str("sha256", /^[0-9a-f]{64}$/),
+      keyId: str("key_id", /^[0-9a-f]{16,64}$/),
+      keyWrapped: str("key_wrapped", /^[A-Za-z0-9+/=]{16,2048}$/),
+      nonce: str("nonce", /^[A-Za-z0-9+/=]{16,32}$/),
+    });
+    return json({ stored });
   }
 
   return async function handle(req: Request): Promise<Response> {
@@ -338,6 +370,8 @@ export function createBrain(opts: BrainOptions) {
           return await reprompt(body);
         case "/end":
           return await end(body);
+        case "/recordings":
+          return await recording(body);
         default:
           throw new HttpError(404, "not found");
       }

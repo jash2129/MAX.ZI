@@ -9,6 +9,7 @@
       -> DeliveryTap (counts audio played, for "how much was heard")
       -> LiveAvatar LITE (lip-synced video + audio; voice-only fallback)
       -> Daily room (avatar video, Max's audio, data channel: panels / captions / call state)
+      -> call recording (stereo, kept only with consent, encrypted; recording.py)
 
 The browser makes no turn-taking decisions; it joins the room, plays it, and renders the panels.
 """
@@ -41,6 +42,7 @@ from .avatar import FallbackHeyGenVideoService
 from .brain_client import BrainClient
 from .brain_processor import BrainProcessor, DeliveryTap
 from .policy import SILENCE_PROMPT_MS
+from .recording import CallRecording, RecordingSettings
 from .turn_start import MaxBargeInStartStrategy
 
 SAMPLE_RATE = 24000  # Aura-2 and LiveAvatar both work at 24 kHz: no resampling on the way out
@@ -64,6 +66,7 @@ class CallConfig:
     tts_voice: str = "aura-2-arcas-en"
     deal: dict[str, str] = field(default_factory=dict)
     deal_id: str | None = None
+    recording: RecordingSettings | None = None
 
 
 def noise_filter():
@@ -167,6 +170,11 @@ async def run_call(cfg: CallConfig, brain: BrainClient | None = None, opening: d
         else:
             log.warning("HEYGEN_API_KEY not set: voice-only call")
         stages.append(transport.output())
+        rec = CallRecording(cfg.dealership_id, cfg.call_id, cfg.recording) if cfg.recording else None
+        if rec:
+            stages.append(rec.processor)
+        else:
+            log.info("recording not configured (RECORDING_PUBLIC_KEY, S3_*): this call is not recorded")
 
         task = PipelineTask(
             Pipeline(stages),
@@ -184,6 +192,9 @@ async def run_call(cfg: CallConfig, brain: BrainClient | None = None, opening: d
 
         @transport.event_handler("on_first_participant_joined")
         async def _on_joined(_transport, _participant):
+            if rec:
+                # Kept only on this machine until the brain confirms consent at the end
+                await rec.start()
             await brain_proc.say_opening(str(opening.get("text", "")), int(opening.get("beat", 0)))
 
         customer_left = False
@@ -200,7 +211,13 @@ async def run_call(cfg: CallConfig, brain: BrainClient | None = None, opening: d
             await PipelineRunner(handle_sigint=False).run(task)
             end_reason = brain_proc.ended_reason or ("customer_left" if customer_left else "ended")
         finally:
-            # The brain writes the call's outcome, review, usage and webhook from here
-            await brain.end(brain_proc.ended_reason or ("customer_left" if customer_left else end_reason))
-            await brain.aclose()
+            try:
+                # The brain writes the call's outcome, review, usage and webhook from here
+                consent = await brain.end(brain_proc.ended_reason or ("customer_left" if customer_left else end_reason))
+                if rec:
+                    await rec.finish(consent, brain)
+            finally:
+                if rec:
+                    rec.discard()
+                await brain.aclose()
 

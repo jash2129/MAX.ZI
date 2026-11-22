@@ -63,9 +63,27 @@ All enforced in the database:
   - Deals a day past expiry are deleted.
   - Transcripts older than the dealership's `retention.transcripts_days` (default 365) are deleted.
   - Recording rows past `retention_until` are deleted.
+  - Files of deleted recordings are deleted from storage (the `storage_deletion` queue, filled by a
+    trigger on every recording delete and by recordings sent without consent). Needs `S3_*`; without
+    it they stay queued and the output's `files_pending` says how many. A failed delete is retried on
+    the next run.
 - **Deletion on request:** `app.forget_call` (a signed-in manager, from the portal's call viewer) or
   `npm run forget-call -- <call id>` (owner). The transcript, review text and recording are deleted;
   the call's outcome row stays for counts and billing; the deletion is in the audit log.
+
+## Recordings (migration 011)
+
+- The brain stores a recording only through `app.add_recording`, which accepts it only for that
+  dealership's call **with a consent time** and a storage key under the dealership's prefix; anything
+  else is queued for file deletion. The brain's login can't read recordings or the queue.
+- Retention: `retention.recordings_days` per dealership (default 90).
+- `app.note_recording_access(call)`: the portal calls it before every playback; it writes a `listen`
+  entry to the dealership's audit log and refuses anyone who can't read the dealership.
+- `src/storage.ts`: a small S3-compatible client (AWS Signature V4, checked against AWS's published
+  example). `src/recording-crypto.ts`: decrypting recordings (AES-256-GCM, data key wrapped with
+  RSA-OAEP-SHA256) and the key pair.
+- `npm run recording-keys -- <worker env file> <portal env file>`: a new key pair; the public key to
+  the worker, the private key to the portal, nothing printed but the key id.
 
 ## Use
 

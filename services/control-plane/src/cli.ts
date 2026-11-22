@@ -11,6 +11,8 @@ import { resolve } from "node:path";
 import { fromPgPool, migrate, strictTls } from "./db.ts";
 import { seedDemo } from "./seed-demo.ts";
 import { forgetCall, maintain } from "./maintenance.ts";
+import { generateRecordingKeys } from "./recording-crypto.ts";
+import { storeFromEnv } from "./storage.ts";
 
 /** Sets KEY=value in an env file, keeping its other lines. The value is never printed. */
 function writeEnvVar(path: string, key: string, value: string) {
@@ -38,8 +40,21 @@ function loadLocalEnv() {
 }
 
 async function main() {
-  loadLocalEnv();
   const [cmd, arg] = process.argv.slice(2);
+  if (cmd === "recording-keys") {
+    // recording-keys <voice worker env file> <portal env file>: a new key pair for call recordings. The
+    // public key goes to the worker (it can encrypt, never decrypt), the private key to the portal.
+    // Nothing is printed but the key id. Keep the old private key until its recordings have expired.
+    const workerFile = arg;
+    const portalFile = process.argv[4];
+    if (!workerFile || !portalFile) throw new Error("usage: recording-keys <voice worker env file> <portal env file>");
+    const k = generateRecordingKeys();
+    writeEnvVar(resolve(workerFile), "RECORDING_PUBLIC_KEY", k.publicKey);
+    writeEnvVar(resolve(portalFile), "RECORDING_PRIVATE_KEY", k.privateKey);
+    console.log(`recording key ${k.keyId}: public key written to ${resolve(workerFile)}, private key to ${resolve(portalFile)}`);
+    return;
+  }
+  loadLocalEnv();
   // Neon: DDL and seeding over the direct connection, not the PgBouncer pooler (transaction mode)
   const url = process.env.DATABASE_URL_UNPOOLED || process.env.DATABASE_URL;
   if (!url) throw new Error("DATABASE_URL (or DATABASE_URL_UNPOOLED) is required");
@@ -99,7 +114,7 @@ async function main() {
       console.log(`platform owner is now ${email}`);
     } else if (cmd === "maintain") {
       // closes abandoned calls, deletes expired deals, enforces transcript and recording retention
-      console.log(JSON.stringify(await maintain(db, { staleHours: Number(arg) || undefined })));
+      console.log(JSON.stringify(await maintain(db, { staleHours: Number(arg) || undefined, storage: storeFromEnv() })));
     } else if (cmd === "forget-call") {
       // deletion on request: forget-call <call id>
       if (!arg) throw new Error("usage: forget-call <call id>");

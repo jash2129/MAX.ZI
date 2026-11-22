@@ -13,7 +13,8 @@
     "invite": "tsx src/cli.ts invite",
     "maintain": "tsx src/cli.ts maintain",
     "forget-call": "tsx src/cli.ts forget-call",
-    "owner-email": "tsx src/cli.ts owner-email"
+    "owner-email": "tsx src/cli.ts owner-email",
+    "recording-keys": "tsx src/cli.ts recording-keys"
   },
   "engines": {
     "node": ">=20"
