@@ -79,10 +79,12 @@ describe("auth and validation", () => {
     expect(out).toEqual([{ type: "error", status: 409, error: expect.any(String) }]);
   });
 
-  it("refuses a dealership whose price ladder the code does not enforce", () => {
+  it("takes a dealership's own ladder, and refuses an invalid one", () => {
     const base = { id: "x", name: "X", default_vehicle: { year: "2026", make: "Kia", model: "Soul" } };
-    expect(() => validateDealership({ ...base, price_ladder: [5, 4, 3.5, 3] }, "x.json")).toThrow(/price_ladder/);
-    expect(validateDealership({ ...base, price_ladder: [4, 3.5, 3.25, 3] }, "x.json").max_display_name).toBe("Max");
+    expect(validateDealership({ ...base, price_ladder: [5, 4.5, 4] }, "x.json").price_ladder).toEqual([5, 4.5, 4]);
+    for (const bad of [[3, 4], [], [4, 4], [4.333], "4"]) {
+      expect(() => validateDealership({ ...base, price_ladder: bad }, "x.json"), JSON.stringify(bad)).toThrow(/price_ladder/);
+    }
   });
 });
 

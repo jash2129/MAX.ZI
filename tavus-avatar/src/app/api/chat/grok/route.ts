@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { processClientTurn, commitTurn, repromptText, type ControllerDecision } from "@/lib/beat-controller";
-import { DEFAULT_DEAL_CONFIG } from "@/lib/deal-config";
+import { clientDealConfig } from "@/lib/deal-config";
 import { loadSession, saveSession } from "@/lib/session-store";
 import { streamingEnabled } from "@/lib/llm-stream";
 
@@ -43,7 +43,10 @@ export async function POST(request: Request) {
     if (body.action === "warmup") {
       return NextResponse.json({ ok: true, routeMs: Date.now() - routeStart, streaming: streamingEnabled() });
     }
-    const { messages = [], sessionId = "live_session", dealConfig = DEFAULT_DEAL_CONFIG, clientBeatId, turnId = 0 } = body;
+    const { messages = [], sessionId = "live_session", clientBeatId, turnId = 0 } = body;
+    // Prices never come from the browser: only the vehicle and dealership name may be overridden.
+    // (A request could otherwise set price_ladder or per_day_price and have Max quote any price.)
+    const dealConfig = clientDealConfig(body.dealConfig);
 
     // Serverless hosts: this call's state comes from the shared store and goes back after the turn
     // (a no-op on one long-running server, see session-store.ts)

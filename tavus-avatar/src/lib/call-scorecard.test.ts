@@ -71,3 +71,31 @@ describe("call scorecard", () => {
     expect(failed([{ customer: "lower", max: "I can do two dollars a day for you", beat: 23 }])).toContain("price_approved");
   });
 });
+
+describe("call scorecard on a dealership's own ladder", () => {
+  const ladder = [5, 4.5, 4];
+  const ids = (turns: ScoredTurn[], l?: number[]) => scoreCall(turns, l).checks.filter((c) => !c.pass).map((c) => c.id);
+  const atPrice = (max: string): ScoredTurn[] => [
+    { customer: "okay", max: "You can get everything for only five dollars a day.", beat: 22 },
+    { customer: "no", max, beat: 23 },
+  ];
+
+  it("the dealership's prices pass; the demo's prices on that dealership fail", () => {
+    expect(ids(atPrice("I can bring that down to four dollars and fifty cents a day."), ladder)).not.toContain("price_approved");
+    expect(ids(atPrice("I can bring that down to three dollars and fifty cents a day."), ladder)).toContain("price_approved");
+  });
+
+  it("a no must get this ladder's next price, and stopping at its floor is fine", () => {
+    expect(ids(atPrice("I understand. Let's look at the coverage again."), ladder)).toContain("ladder_on_no");
+    const atFloor: ScoredTurn[] = [
+      { customer: "okay", max: "That is four dollars a day, our floor.", beat: 23 },
+      { customer: "no", max: "No problem at all, you'll keep your factory warranty.", beat: 25 },
+    ];
+    expect(ids(atFloor, ladder)).not.toContain("ladder_on_no");
+  });
+
+  it("the check's label names the dealership's floor", () => {
+    expect(scoreCall([], ladder).checks.find((c) => c.id === "price_approved")?.label).toBe("Only approved prices, never under $4");
+    expect(scoreCall([]).checks.find((c) => c.id === "price_approved")?.label).toBe("Only approved prices, never under $3");
+  });
+});

@@ -7,6 +7,7 @@
  * Pure: works on turns (what the customer said, what Max said, the beat after) only.
  */
 import { isPlainNo } from "./beat-controller";
+import { DEFAULT_LADDER, floorOf, spokenDailyRates, stageOfPrice } from "./price-ladder";
 
 export interface ScoredTurn {
   customer: string;
@@ -50,21 +51,14 @@ const ONE_WORD_ANSWERS = new Set(
     "go understood understand gotcha agreed agree deal done ready mhm hmm hm uh um thanks thank").split(" ")
 );
 
-/** Every daily amount Max states, in dollars ("four dollars", "three dollars and fifty cents", "$3.25") */
+/** Every daily amount Max states, in dollars ("four dollars", "three dollars and fifty cents", "$3.25"), with "a day" */
 export function statedDailyAmounts(text: string): number[] {
-  const t = text.toLowerCase();
-  const out: number[] = [];
-  const words: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5 };
-  // Only amounts said as a daily price ("… a day"): "twenty five dollar for every oil change" is not one
-  for (const m of t.matchAll(/\b(one|two|three|four|five) dollars?(?: and (twenty[- ]five|fifty|seventy[- ]five) cents)?(?= (?:a|per) day)/g)) {
-    const cents = m[2] ? (m[2].startsWith("fifty") ? 0.5 : m[2].startsWith("twenty") ? 0.25 : 0.75) : 0;
-    out.push(words[m[1]] + cents);
-  }
-  for (const m of t.matchAll(/\$\s?(\d+(?:\.\d{1,2})?)\s*(?:a day|per day|\/day)/g)) out.push(Number(m[1]));
-  return out;
+  return spokenDailyRates(text);
 }
 
-export function scoreCall(turns: ScoredTurn[]): Scorecard {
+/** `ladder`: the dealership's approved daily rates (default: the demo's $4 / $3.50 / $3.25 / $3) */
+export function scoreCall(turns: ScoredTurn[], ladder: readonly number[] = DEFAULT_LADDER): Scorecard {
+  const floor = floorOf(ladder);
   const checks: Check[] = [];
   const maxLines = turns.map((t) => t.max).filter(Boolean);
   const furthestBeat = turns.reduce((m, t) => Math.max(m, t.beat), 0);
@@ -137,14 +131,13 @@ export function scoreCall(turns: ScoredTurn[]): Scorecard {
     checks.push({ id: "fragment_not_answer", label: "Fragments are not answers", severity: "hard", pass: !detail, detail });
   }
 
-  // 4. Never under the $3/day floor, and only approved prices
+  // 4. Never under the floor, and only this dealership's approved prices
   {
-    const approved = new Set([4, 3.5, 3.25, 3]);
     let detail: string | undefined;
     for (const l of maxLines) {
-      for (const a of statedDailyAmounts(l)) if (!detail && !approved.has(a)) detail = `stated $${a}/day: "${short(l)}"`;
+      for (const a of statedDailyAmounts(l)) if (!detail && stageOfPrice(ladder, a) === 0) detail = `stated $${a}/day: "${short(l)}"`;
     }
-    checks.push({ id: "price_approved", label: "Only approved prices, never under $3", severity: "hard", pass: !detail, detail });
+    checks.push({ id: "price_approved", label: `Only approved prices, never under $${floor}`, severity: "hard", pass: !detail, detail });
   }
 
   // 5. A plain "no" at the offer gets a lower price, not the same pitch
@@ -153,9 +146,9 @@ export function scoreCall(turns: ScoredTurn[]): Scorecard {
     for (let i = 1; i < turns.length; i++) {
       const before = turns[i - 1].beat;
       if (!detail && (before === 22 || before === 23) && isPlainNo(norm(turns[i].customer))) {
-        const lastPrice = Math.min(4, ...turns.slice(0, i).flatMap((t) => statedDailyAmounts(t.max)));
+        const lastPrice = Math.min(ladder[0], ...turns.slice(0, i).flatMap((t) => statedDailyAmounts(t.max)));
         const offered = statedDailyAmounts(turns[i].max);
-        if (lastPrice > 3 && !offered.some((a) => a < lastPrice)) {
+        if (lastPrice > floor && !offered.some((a) => a < lastPrice)) {
           detail = `"${turns[i].customer}" at $${lastPrice} got: "${short(turns[i].max)}"`;
         }
       }

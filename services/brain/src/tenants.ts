@@ -1,13 +1,14 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
+import { isValidLadder } from "../../../tavus-avatar/src/lib/price-ladder.ts";
+
 /**
  * Dealership configuration (Phase 1: JSON files under config/dealerships; Phase 3 moves this to the
  * control plane's Postgres tables with versions and approval).
  *
- * Only what the controller can honour per dealership today is accepted. The price ladder is still
- * enforced in beat-controller.ts as $4 -> $3.50 -> $3.25 -> $3, so a dealership whose ladder differs is
- * REFUSED at load time instead of being quietly quoted another dealership's prices.
+ * The price ladder is the dealership's own (the controller reads it per call). An invalid ladder (not
+ * strictly decreasing, empty, over $100, sub-cent) stops start-up rather than being quoted.
  */
 export interface DealershipConfig {
   id: string;
@@ -27,8 +28,6 @@ export interface ConfigSource {
   ids?(): string[];
 }
 
-/** The ladder the controller enforces in code today (beat-controller.ts CONCESSION_LADDER). */
-export const ENFORCED_LADDER = [4, 3.5, 3.25, 3] as const;
 
 export const ID_PATTERN = /^[a-z0-9][a-z0-9_-]{0,63}$/;
 
@@ -43,8 +42,8 @@ export function validateDealership(raw: unknown, source: string): DealershipConf
   const v = c.default_vehicle;
   if (!v || [v.year, v.make, v.model].some((x) => typeof x !== "string" || !x.trim())) fail("default_vehicle needs year, make, model");
   const ladder = c.price_ladder;
-  if (!Array.isArray(ladder) || ladder.length !== ENFORCED_LADDER.length || ladder.some((p, i) => p !== ENFORCED_LADDER[i])) {
-    fail(`price_ladder must be [${ENFORCED_LADDER.join(", ")}] until per-dealership ladders land (Phase 3)`);
+  if (!isValidLadder(ladder)) {
+    fail("price_ladder must be 1-8 daily rates, highest first, strictly decreasing, each over $0 and at most $100, in cents");
   }
   return {
     id: c.id!,

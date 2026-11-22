@@ -9,7 +9,8 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { asUser, asService, migrate } from "../../control-plane/src/db.ts";
 import { pgliteDb } from "../../control-plane/src/pglite.ts";
 import { seedDemo } from "../../control-plane/src/seed-demo.ts";
-import { createBrain } from "../src/app.ts";
+import { getOrCreateCallState } from "../../../tavus-avatar/src/lib/beat-controller.ts";
+import { createBrain, sessionKey } from "../src/app.ts";
 import { PostgresConfigSource } from "../src/pg-config.ts";
 
 const REPORT = resolve(import.meta.dirname, "../../../testing-skill/reports/sim-batch-2026-11-21T06-26-38-028Z.json");
@@ -77,19 +78,34 @@ describe("brain on control-plane config", () => {
     expect((await post(brain(), "/calls", { dealership_id: "nobody", call_id: "pg-2" })).status).toBe(404);
   });
 
-  it("refuses a dealership whose live ladder the controller does not enforce, and a call in progress keeps going", async () => {
+  it("a newly approved ladder is used by new calls; a call in progress keeps the ladder it started with", async () => {
     const b = brain();
-    await post(b, "/calls", { dealership_id: "demo-hyundai", call_id: "pg-3" });
+    await post(b, "/calls", { dealership_id: "demo-hyundai", call_id: "pg-3" }); // demo ladder, $4 -> $3.50 ...
     await shipPrice([5, 4.5, 4]);
-    // New calls: refused (never quoted a ladder the controller would not follow)
-    expect((await post(b, "/calls", { dealership_id: "demo-hyundai", call_id: "pg-4" })).status).toBe(404);
-    // The call already running is unaffected
-    const f = await finalOf(await post(b, "/turn", { dealership_id: "demo-hyundai", call_id: "pg-3", turn_id: 1, transcript: "Yes I can hear you." }));
-    expect(f.text).toMatch(/experience/);
-    // Roll the ladder back: new calls work again
-    const retired = await asUser(db, owner, async (tx) => (await tx.query<{ id: string }>("select id from price_ladder_version where dealership_id = 'demo-hyundai' and status = 'retired'")).rows[0].id);
+    const fresh = await (await post(b, "/calls", { dealership_id: "demo-hyundai", call_id: "pg-4" })).json();
+    expect(fresh.versions.price).toBeTruthy();
+
+    // Both calls reach the price; the customer pushes back once
+    for (const id of ["pg-3", "pg-4"]) {
+      const st = getOrCreateCallState(sessionKey("demo-hyundai", id));
+      st.step0_completed = true;
+      st.current_beat = 22;
+      st.delivered_beats = Array.from({ length: 22 }, (_, i) => i + 1);
+    }
+    const push = async (id: string) => finalOf(await post(b, "/turn", { dealership_id: "demo-hyundai", call_id: id, turn_id: 1, transcript: "That's too much." }));
+    const old = await push("pg-3");
+    const now = await push("pg-4");
+    expect(old.text).toContain("three dollars and fifty cents a day");
+    expect(old.panels).toContainEqual({ event: "panel.show", panel: "price", data: { daily_rate: 3.5 } });
+    expect(now.text).toContain("four dollars and fifty cents a day");
+    expect(now.text).toContain("While five dollars is our standard rate");
+    expect(now.panels).toContainEqual({ event: "panel.show", panel: "price", data: { daily_rate: 4.5 } });
+
+    // Roll back: new calls are on the demo ladder again
+    const retired = await asUser(db, owner, async (tx) => (await tx.query<{ id: string }>("select id from price_ladder_version where dealership_id = 'demo-hyundai' and status = 'retired' order by version desc limit 1")).rows[0].id);
     await asUser(db, owner, (tx) => tx.query("select app.rollback_to('price', $1)", [retired]));
-    expect((await post(b, "/calls", { dealership_id: "demo-hyundai", call_id: "pg-5" })).status).toBe(200);
+    const back = await (await post(b, "/calls", { dealership_id: "demo-hyundai", call_id: "pg-5" })).json();
+    expect(back.versions.price).toBe(retired);
   });
 
   it("drafts never reach a call", async () => {
@@ -100,11 +116,11 @@ describe("brain on control-plane config", () => {
   it("caches config for its TTL, then sees the change", async () => {
     const b = brain(30_000);
     clock = 1_000;
-    expect((await post(b, "/calls", { dealership_id: "demo-hyundai", call_id: "pg-7" })).status).toBe(200);
-    await shipPrice([6, 5]);
-    clock = 2_000; // within the TTL: still the cached (valid) config
-    expect((await post(b, "/calls", { dealership_id: "demo-hyundai", call_id: "pg-8" })).status).toBe(200);
-    clock = 40_000; // expired: the new live ladder is seen, and refused
-    expect((await post(b, "/calls", { dealership_id: "demo-hyundai", call_id: "pg-9" })).status).toBe(404);
+    const before = (await (await post(b, "/calls", { dealership_id: "demo-hyundai", call_id: "pg-7" })).json()).versions.price;
+    const shipped = await shipPrice([6, 5]);
+    clock = 2_000; // within the TTL: still the cached version
+    expect((await (await post(b, "/calls", { dealership_id: "demo-hyundai", call_id: "pg-8" })).json()).versions.price).toBe(before);
+    clock = 40_000; // expired: the newly approved ladder
+    expect((await (await post(b, "/calls", { dealership_id: "demo-hyundai", call_id: "pg-9" })).json()).versions.price).toBe(shipped);
   });
 });

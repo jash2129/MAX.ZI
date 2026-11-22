@@ -5,16 +5,18 @@ import kbData from "../../../tavus-avatar/src/lib/max-knowledge-base.json" with 
 import type { Db } from "../../control-plane/src/db.ts";
 import { loadLiveConfig, type LiveDealershipConfig } from "../../control-plane/src/live-config.ts";
 
-import { ENFORCED_LADDER, type ConfigSource, type DealershipConfig } from "./tenants.ts";
+import { isValidLadder } from "../../../tavus-avatar/src/lib/price-ladder.ts";
+
+import { type ConfigSource, type DealershipConfig } from "./tenants.ts";
 
 /**
  * Dealership config from the control plane (Postgres), read as brain_service: the database only ever
  * shows it LIVE, approved versions.
  *
- * Until the controller reads beats, knowledge base and ladder per call (the next step of this phase),
- * it speaks its built-in ones. So a live version is accepted only if its content IS the built-in
- * content; anything else is refused loudly. Otherwise an approver could approve script v2 while
- * customers still heard v1, and the approval would mean nothing.
+ * The price ladder is per call (the controller reads dealConfig.price_ladder). The beats and the
+ * knowledge base are not yet: the controller speaks its built-in ones, so a live script or knowledge
+ * base is accepted only if it IS the built-in content; anything else is refused loudly. Otherwise an
+ * approver could approve script v2 while customers still heard v1, and the approval would mean nothing.
  */
 export class PostgresConfigSource implements ConfigSource {
   readonly kind = "postgres" as const;
@@ -45,7 +47,8 @@ export class PostgresConfigSource implements ConfigSource {
 /** Why the brain cannot run this live config today, or null if it can. */
 export function unsupported(live: LiveDealershipConfig): string | null {
   if (!live.script || !live.price || !live.kb) return "no live script, price ladder or knowledge base";
-  if (!isDeepStrictEqual(live.price.steps, [...ENFORCED_LADDER])) return `live price ladder [${live.price.steps.join(", ")}] is not the one the controller enforces`;
+  const steps: unknown = live.price.steps;
+  if (!isValidLadder(steps)) return `live price ladder ${JSON.stringify(steps)} is invalid`;
   if (!isDeepStrictEqual(live.script.beats, beatsData)) return "live script differs from the script the controller runs";
   if (!isDeepStrictEqual(live.kb.facts, (kbData as { facts: unknown[] }).facts)) return "live knowledge base differs from the one the controller runs";
   if (live.facts.some((f) => f.shared)) return "shared platform facts are not used by the controller yet; deactivate them or wait for per-call knowledge";

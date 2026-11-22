@@ -49,11 +49,16 @@ handled one at a time: a commit always lands before the next turn.
 
 **From the control plane** (`DATABASE_URL`, see [../control-plane](../control-plane/README.md)): only a
 new call (`POST /calls`) reads config; a call in progress keeps what it started with, even if a new
-version goes live. `/calls` returns the version ids the call runs on. Until the controller reads beats,
-knowledge base and ladder per call, a live version is accepted only if its content **is** the content
-the controller runs (the demo's); any other live content refuses new calls for that dealership with a
-`dealership_refused` log line. Otherwise an approver could approve script v2 while customers still
-heard v1.
+version goes live. `/calls` returns the version ids the call runs on.
+
+- **Price ladder: per dealership.** Each call gets its dealership's live ladder (`dealConfig.price_ladder`,
+  see `tavus-avatar/src/lib/price-ladder.ts`): Max opens at its first step, comes down one step per
+  push, never goes below its last step, and says, shows and checks only its prices. That covers the
+  scripted lines, the free-AI guard and the simulator scorecard.
+- **Script and knowledge base: not yet per dealership.** The controller still speaks its built-in
+  beats and facts, so a live script or knowledge base is accepted only if it **is** that built-in
+  content. Anything else refuses new calls for that dealership with a `dealership_refused` log line.
+  Otherwise an approver could approve script v2 while customers still heard v1.
 
 **From files** (development): one JSON file per dealership in `config/dealerships/`. An invalid file
 stops start-up.

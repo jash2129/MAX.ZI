@@ -144,7 +144,8 @@ describe("the guards", () => {
   });
 
   it("reads prices said in words and digits", () => {
-    expect(dailyPrices("four dollars a day, or $3.25 per day, three dollars and fifty cents a day")).toEqual([4, 3.5, 3.25]);
+    // In the order said (the old parser listed word prices before digit prices; callers only take the min / check each)
+    expect(dailyPrices("four dollars a day, or $3.25 per day, three dollars and fifty cents a day")).toEqual([4, 3.25, 3.5]);
   });
 });
 

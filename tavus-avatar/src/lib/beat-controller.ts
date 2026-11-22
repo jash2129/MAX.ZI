@@ -17,12 +17,12 @@ import {
   buildFreeSystemPrompt,
   runFreeTurn,
   callStateNote,
-  PRICE_LADDER,
   PRICE_BEAT,
   LAST_BEAT,
   type ChatMessage,
 } from "./free-ai";
 import { approvedFacts } from "./grounded-answer";
+import { DEFAULT_LADDER, floorOf, ladderOf, namedDailyPrice, priceAtStage, samePrice, spokenPrice, stageOfPrice } from "./price-ladder";
 import {
   LEAD_IN_NO,
   GARBLED_LINE,
@@ -48,7 +48,6 @@ import {
   MOVE_ON_LINE,
   CONSENT_SHORT_LINE,
   PRICE_DECISION_LINE,
-  FLOOR_DECISION_LINE,
   DECLINE_LINE,
   BEAT_TRANSITION_BRIDGES,
   PAUSE_LINE,
@@ -67,7 +66,6 @@ import {
   MANUFACTURER_VS_DEALER_LINE,
   SALES_CALL_LINE,
   CALL_PURPOSE_LINE,
-  FLOOR_PRICE_LINE,
   SCRIPT_COMPLETE_LINE,
   REPEATED_NO_LINE,
   UNKNOWN_QUESTION_LINE,
@@ -87,8 +85,13 @@ import {
   TIRE_EXCLUSION_LINE,
   MAINTENANCE_EXCLUSION_LINE,
   DROP_COVERAGE_LINE,
-  UNIT_PRICE_LINE,
-  TOTAL_PRICE_LINE,
+  unitPriceLine,
+  totalPriceLine,
+  floorPriceLine,
+  floorDecisionLine,
+  firstConcessionLine,
+  middleConcessionLine,
+  floorConcessionLine,
   THINK_ABOUT_IT_LINE,
   NOT_FUNNY_LINE,
   TECH_ISSUE_LINE,
@@ -230,8 +233,11 @@ export const BEAT_RECAPS: Record<number, string> = {
   19: "To recap, with full protection, fuel is your only ongoing out-of-pocket expense.",
   20: "To recap, you get ten-year one hundred thousand mile bumper-to-bumper coverage with zero deductible.",
   21: "To recap, you get the five-year tire and wheel protection and five-year maintenance package.",
-  22: "That full vehicle protection package is just four dollars a day.",
 };
+/** Beat 22's recap carries the price, so it is built from the call's current offer */
+export function priceRecap(dealConfig: DealConfig): string {
+  return `That full vehicle protection package is just ${dealConfig.per_day_price} a day.`;
+}
 
 export type ClassifierIntent =
   | "agree"
@@ -515,6 +521,8 @@ export function repromptText(sessionId: string, kind: "resume" | "still_with_me"
 
 export function getOrCreateCallState(sessionId: string, dealConfig = DEFAULT_DEAL_CONFIG): CallState {
   if (!activeStates.has(sessionId)) {
+    // A dealership ladder sets the opening price; an invalid ladder throws here, before a word is said
+    const opening = dealConfig.price_ladder ? spokenPrice(ladderOf(dealConfig)[0]) : dealConfig.per_day_price;
     activeStates.set(sessionId, {
       current_beat: 0,
       delivered_beats: [],
@@ -524,7 +532,7 @@ export function getOrCreateCallState(sessionId: string, dealConfig = DEFAULT_DEA
       concession_stage: 1,
       step0_turns: 0,
       step0_completed: false,
-      dealConfig: { ...dealConfig },
+      dealConfig: { ...dealConfig, per_day_price: opening, ...(dealConfig.price_ladder ? { price_ladder: [...dealConfig.price_ladder] } : {}) },
       is_stopped: false,
       price_defer_count: 0,
       last_check_in_tag: "",
@@ -617,10 +625,8 @@ export function formatSpeechText(text: string): string {
   clean = clean.replace(/\b29\s*dollar\b/gi, "twenty-nine dollars");
   clean = clean.replace(/\b8\s*dollars\b/gi, "eight dollars");
   clean = clean.replace(/\b4\s*dollars\b/gi, "four dollars");
-  clean = clean.replace(/\$4\.00|\$4\b/gi, "four dollars");
-  clean = clean.replace(/\$3\.50\b/gi, "three dollars and fifty cents");
-  clean = clean.replace(/\$3\.25\b/gi, "three dollars and twenty-five cents");
-  clean = clean.replace(/\$3\.00|\$3\b/gi, "three dollars");
+  // Daily rates in figures ("$3.50", "$4") are said in words; larger amounts ($7,000) stay as written
+  clean = clean.replace(/\$(\d{1,2})(?:\.(\d{2}))?(?![\d,])/g, (_m, d: string, c?: string) => spokenPrice(Number(d) + (c ? Number(c) / 100 : 0)));
   clean = clean.replace(/\bhundred thirty dollar per hour up to hundred sixty dollar per hour\b/gi, "one hundred thirty to one hundred sixty dollars per hour");
   clean = clean.replace(/\bpage number 4\b/gi, "page number four");
 
@@ -651,7 +657,7 @@ export function getFullBeatUtterance(beat: Beat, dealConfig: DealConfig, state?:
 }
 
 // Map beat numbers to their UI canvas tools
-export function getBeatToolCalls(beatId: number): Array<{ name: string; args: Record<string, any> }> {
+export function getBeatToolCalls(beatId: number, ladder: readonly number[] = DEFAULT_LADDER): Array<{ name: string; args: Record<string, any> }> {
   switch (beatId) {
     case 6:
       return [{ name: "show_content", args: { item: "warranty_terms" } }];
@@ -670,7 +676,7 @@ export function getBeatToolCalls(beatId: number): Array<{ name: string; args: Re
       return [{ name: "show_pricing", args: { product: "gap" } }];
     case 22:
     case 23:
-      return [{ name: "show_payment_breakdown", args: { daily_rate: 4 } }];
+      return [{ name: "show_payment_breakdown", args: { daily_rate: ladder[0] } }];
     case 24:
       return [{ name: "show_content", args: { item: "deal_summary" } }];
     default:
@@ -738,7 +744,7 @@ export function isAvatarScriptEcho(transcript: string): boolean {
     "those purchase terms are locked in on your primary",
     "i have full authority to handle your paperwork",
     "everything on your paperwork is all set and finalized",
-    "three dollars a day is our absolute hard floor",
+    "a day is our absolute hard floor",
     "i'm an ai finance assistant",
     "take all the time you need i'm right here",
     "i'm max your digital finance manager today",
@@ -799,22 +805,9 @@ export function isVerificationAnswer(transcript: string): boolean {
   return words.filter((w) => !VERIFY_FILLER.has(w)).length >= 4;
 }
 
-// Daily rate Max is offering at each concession stage: $4.00 -> $3.50 -> $3.25 -> $3.00 hard floor
-const CONCESSION_LADDER: Record<number, number> = { 1: 4.0, 2: 3.5, 3: 3.25, 4: 3.0 };
-
-// Daily price the customer names in a counter-offer ("how about three fifty", "$3.25"), or null
-export function parseNamedDailyPrice(transcript: string): number | null {
-  const t = transcript.toLowerCase().replace(/-/g, " ");
-  const digits = t.match(/\$?\b(\d+(?:\.\d{1,2})?)\b/);
-  if (digits) {
-    const n = Number(digits[1]);
-    if (n > 0 && n < 10) return n;
-  }
-  if (/\bthree (dollars? )?(and )?twenty five\b/.test(t)) return 3.25;
-  if (/\bthree (dollars? )?(and )?fifty\b|\bthree and a half\b/.test(t)) return 3.5;
-  if (/\bthree (dollars?|bucks)\b/.test(t)) return 3.0;
-  if (/\bfour (dollars?|bucks)\b/.test(t)) return 4.0;
-  return null;
+// Daily price the customer names in a counter-offer ("how about three fifty", "$3.25", "twenty a month"), or null
+export function parseNamedDailyPrice(transcript: string, ladder: readonly number[] = DEFAULT_LADDER): number | null {
+  return namedDailyPrice(transcript, ladder);
 }
 
 // "Say that again" / "what does that mean": a request to hear the current beat again, not a new
@@ -1042,10 +1035,17 @@ export function isPriceRefusal(transcript: string): boolean {
 // Deterministic rule-based classification fallback (also used for unit/simulation tests)
 export function classifyCustomerInputRuleBased(
   transcript: string,
-  currentBeatId: number
+  currentBeatId: number,
+  ladder: readonly number[] = DEFAULT_LADDER
 ): ClassificationResult {
   const norm = transcript.toLowerCase().replace(/[^a-z0-9 ]/g, " ").trim();
   const words = norm.split(/\s+/).filter(Boolean);
+  // Prices in the customer's words, against this call's ladder (read from the raw transcript: "3.50")
+  const namedPrice = namedDailyPrice(transcript, ladder);
+  const namesPriceBelowOpening = namedPrice !== null && namedPrice < ladder[0] - 0.005;
+  // "four dollars sounds good": the opening price, said back
+  const saysOpeningPrice =
+    norm.includes(spokenPrice(ladder[0]).replace(/-/g, " ").replace(/ cents?$/, "")) || (namedPrice !== null && samePrice(namedPrice, ladder[0]));
 
   if (words.length === 0) {
     return { intent: "garbled", topic_beat_ids: [] };
@@ -1399,19 +1399,8 @@ export function classifyCustomerInputRuleBased(
     }
 
     const isCounterOfferOrFloorPush =
-      norm.includes("three dollar") ||
-      norm.includes("three dollars") ||
-      norm.includes("3 dollar") ||
-      norm.includes("3.00") ||
-      norm.includes("three fifty") ||
-      norm.includes("3.50") ||
-      norm.includes("three twenty five") ||
-      norm.includes("3.25") ||
-      norm.includes("two dollar") ||
-      norm.includes("two dollars") ||
-      norm.includes("two fifty") ||
-      norm.includes("2.50") ||
-      norm.includes("2.00") ||
+      // any price below the opening one ("three fifty", "$3.25", "two dollars", "twenty a month")
+      namesPriceBelowOpening ||
       norm.includes("cheaper") ||
       norm.includes("can you do") ||
       norm.includes("better on the price") ||
@@ -1431,8 +1420,6 @@ export function classifyCustomerInputRuleBased(
       norm.includes("best price") ||
       norm.includes("best you can") ||
       norm.includes("do better") ||
-      norm.includes("dollar fifty") ||
-      norm.includes("1.50") ||
       norm.includes("no deal") ||
       norm.includes("come down") ||
       norm.includes("20 dollars a month") ||
@@ -1456,7 +1443,7 @@ export function classifyCustomerInputRuleBased(
         norm.includes("sounds great") ||
         norm.includes("great protection") ||
         norm.includes("reasonable") ||
-        norm.includes("four dollars") ||
+        saysOpeningPrice ||
         norm.includes("agree") ||
         norm.includes("yes") ||
         norm.includes("focus on") ||
@@ -1472,9 +1459,7 @@ export function classifyCustomerInputRuleBased(
         norm.includes("warranty") ||
         norm.includes("tire") ||
         norm.includes("maintenance") ||
-        norm.includes("four dollars") ||
-        norm.includes("three dollars and fifty") ||
-        norm.includes("three twenty-five") ||
+        saysOpeningPrice ||
         norm.includes("fair") ||
         norm.includes("agree") ||
         norm.includes("yes") ||
@@ -1867,7 +1852,7 @@ export function classifyCustomerInputRuleBased(
       norm.includes("great protection") ||
       norm.includes("let's do it") ||
       norm.includes("lets do it") ||
-      norm.includes("four dollars") ||
+      saysOpeningPrice ||
       norm.includes("agree") ||
       norm.includes("yes") ||
       norm.includes("deal") ||
@@ -1885,7 +1870,7 @@ export function classifyCustomerInputRuleBased(
       norm.includes("warranty") ||
       norm.includes("tire") ||
       norm.includes("maintenance") ||
-      norm.includes("four dollars") ||
+      saysOpeningPrice ||
       norm.includes("fair") ||
       norm.includes("agree") ||
       norm.includes("yes") ||
@@ -2163,7 +2148,7 @@ export async function classifyWithLLM(
   state: CallState
 ): Promise<ClassificationResult> {
   // Ultra-Fast Fast-Path: Deterministically classify common affirmations, objections, and standard requests in <1ms without remote LLM roundtrip lag
-  const fastRuleResult = classifyCustomerInputRuleBased(customerTranscript, state.current_beat);
+  const fastRuleResult = classifyCustomerInputRuleBased(customerTranscript, state.current_beat, ladderOf(state.dealConfig));
   // AI-first understanding (MAX_UNDERSTANDING=ai): longer replies during Beats 2-21 are read by the AI
   // in context; the rules' answer is the fallback (src/lib/ai-understanding.ts)
   if (extraLLMAllowed() && state.step0_completed && shouldAskAI(customerTranscript, state.current_beat, fastRuleResult.intent)) {
@@ -2803,7 +2788,7 @@ async function combinedTurn(
 ): Promise<ControllerDecision | null> {
   const state = getOrCreateCallState(sessionId, dealConfig);
   if (!state.step0_completed || state.is_stopped) return null;
-  const rules = classifyCustomerInputRuleBased(customerTranscript, state.current_beat);
+  const rules = classifyCustomerInputRuleBased(customerTranscript, state.current_beat, ladderOf(state.dealConfig));
   if (!shouldAskAI(customerTranscript, state.current_beat, rules.intent)) return null;
   const beat = BEATS.find((b) => b.id === state.current_beat);
   const expects = beat?.expects ?? "statement";
@@ -2909,7 +2894,7 @@ function freeScript(dealConfig: DealConfig) {
     .map((f) => `- ${f.topic}: ${f.answer}`)
     .join("\n");
   const vehicle = `${dealConfig.vehicle_year} ${dealConfig.vehicle_make} ${dealConfig.vehicle_model}`.trim();
-  return { beats, facts, vehicle, disclosure: FREE_DISCLOSURE };
+  return { beats, facts, vehicle, disclosure: FREE_DISCLOSURE, ladder: ladderOf(dealConfig) };
 }
 
 function freeHistory(state: CallState): ChatMessage[] {
@@ -2928,8 +2913,7 @@ function syncFreeFromScript(state: CallState): void {
     state.free_disclosure_given = true;
   }
   if (state.current_beat >= PRICE_BEAT) {
-    const stage = state.concession_stage ?? 1;
-    const offered = PRICE_LADDER[Math.min(PRICE_LADDER.length - 1, Math.max(0, stage - 1))];
+    const offered = priceAtStage(ladderOf(state.dealConfig), state.concession_stage);
     state.free_lowest_offer = Math.min(state.free_lowest_offer ?? offered, offered);
   }
 }
@@ -2951,7 +2935,8 @@ async function processFreeTurn(
   const pushback = atPrice && isPricePushback(customerTranscript);
   // At the floor, a refusal after the final choice ("$3 a day, or keep your factory warranty?") is the
   // customer's decision: the script keeps the factory warranty and moves to the paperwork
-  if (pushback && state.free_lowest_offer === PRICE_LADDER[PRICE_LADDER.length - 1] && state.floor_decision_asked) {
+  const ladder = ladderOf(state.dealConfig);
+  if (pushback && state.free_lowest_offer === floorOf(ladder) && state.floor_decision_asked) {
     return { reason: "declined at the floor: the script closes it", ms: 0, attempts: 0 };
   }
   const script = freeScript(state.dealConfig);
@@ -2964,6 +2949,7 @@ async function processFreeTurn(
       corpus,
       beatBefore,
       lowestOffered: state.free_lowest_offer,
+      ladder,
       refusedPrice: pushback,
       customerSaid: [...freeHistory(state).filter((m) => m.role === "user").map((m) => m.content), customerTranscript].join(" "),
       recentMax: freeHistory(state).filter((m) => m.role === "assistant").slice(-2).map((m) => m.content),
@@ -2992,17 +2978,18 @@ async function processFreeTurn(
 
   // Panels for the beats reached, and the price bookkeeping (shared with the script if it takes a turn)
   let toolCalls: ControllerDecision["toolCalls"] = [];
-  for (let b = beatBefore + 1; b <= beat; b++) toolCalls.push(...getBeatToolCalls(b).filter((c) => c.name !== "show_payment_breakdown"));
+  for (let b = beatBefore + 1; b <= beat; b++) toolCalls.push(...getBeatToolCalls(b, ladderOf(state.dealConfig)).filter((c) => c.name !== "show_payment_breakdown"));
   if (prices.length) {
     const lowest = Math.min(...prices, state.free_lowest_offer ?? Infinity);
     state.free_lowest_offer = lowest;
     state.negotiated_price_so_far = lowest;
-    state.concession_stage = (PRICE_LADDER as readonly number[]).indexOf(lowest) + 1;
+    state.concession_stage = stageOfPrice(ladderOf(state.dealConfig), lowest);
     toolCalls = [...toolCalls, { name: "show_payment_breakdown", args: { daily_rate: Math.min(...prices) } }];
   }
   if (reply.declined) state.package_declined = true;
   // The final choice at the floor was offered: the next refusal is the customer's decision
-  if ((state.free_lowest_offer === PRICE_LADDER[PRICE_LADDER.length - 1] || prices.includes(PRICE_LADDER[PRICE_LADDER.length - 1])) && /factory warranty/i.test(say) && say.includes("?")) {
+  const floorPrice = floorOf(ladderOf(state.dealConfig));
+  if ((state.free_lowest_offer === floorPrice || prices.some((p) => samePrice(p, floorPrice))) && /factory warranty/i.test(say) && say.includes("?")) {
     state.floor_decision_asked = true;
   }
 
@@ -3322,7 +3309,7 @@ async function runControllerTurn(
         textToSpeak: utterance,
         beatId: 1,
         beatType: beat1.type,
-        toolCalls: getBeatToolCalls(1),
+        toolCalls: getBeatToolCalls(1, ladderOf(state.dealConfig)),
         state,
         intent: "step0",
       };
@@ -3502,7 +3489,7 @@ async function runControllerTurn(
         const confirmation = formatSpeechText(renderBeatText(beat24, state.dealConfig, state));
         textToSpeak = `${confirmation} ${getFullBeatUtterance(beat25, state.dealConfig, state)}`;
         beatType = beat25.type;
-        toolCalls = getBeatToolCalls(24);
+        toolCalls = getBeatToolCalls(24, ladderOf(state.dealConfig));
         break;
       }
 
@@ -3529,7 +3516,7 @@ async function runControllerTurn(
       const bridge = opensWithConnective ? undefined : BEAT_TRANSITION_BRIDGES[nextBeatId];
       textToSpeak = bridge ? `${bridge} ${baseUtterance}` : baseUtterance;
       beatType = nextBeat.type;
-      toolCalls = getBeatToolCalls(nextBeatId);
+      toolCalls = getBeatToolCalls(nextBeatId, ladderOf(state.dealConfig));
       break;
     }
 
@@ -3565,7 +3552,7 @@ async function runControllerTurn(
           const beat4Utterance = getFullBeatUtterance(beat4, state.dealConfig, state);
           textToSpeak = `No problem, thanks for letting me know. ${beat4Utterance}`;
           beatType = beat4.type;
-          toolCalls = getBeatToolCalls(4);
+          toolCalls = getBeatToolCalls(4, ladderOf(state.dealConfig));
           break;
         }
       }
@@ -3579,7 +3566,7 @@ async function runControllerTurn(
         const beat4Utterance = getFullBeatUtterance(beat4, state.dealConfig);
         textToSpeak = `No problem, thanks for letting me know. ${beat4Utterance}`;
         beatType = beat4.type;
-        toolCalls = getBeatToolCalls(4);
+        toolCalls = getBeatToolCalls(4, ladderOf(state.dealConfig));
         break;
       }
 
@@ -3596,7 +3583,7 @@ async function runControllerTurn(
         const beat6Utterance = getFullBeatUtterance(beat6, state.dealConfig);
         textToSpeak = `Allow me to go over it really quick to make sure that you understand everything. Also, if you have any questions, please do not hesitate to stop me and ask me. ${beat6Utterance}`;
         beatType = beat6.type;
-        toolCalls = getBeatToolCalls(6);
+        toolCalls = getBeatToolCalls(6, ladderOf(state.dealConfig));
         break;
       }
 
@@ -3609,7 +3596,7 @@ async function runControllerTurn(
         const beat6Utterance = getFullBeatUtterance(beat6, state.dealConfig);
         textToSpeak = `I completely understand and I respect your time! By law, before you sign, I'm just required to go over what the manufacturer warranty does and doesn't cover so there are no surprises. Allow me to go over it really quick with you. ${beat6Utterance}`;
         beatType = beat6.type;
-        toolCalls = getBeatToolCalls(6);
+        toolCalls = getBeatToolCalls(6, ladderOf(state.dealConfig));
         break;
       }
 
@@ -3638,7 +3625,7 @@ async function runControllerTurn(
         const nextBeat = BEATS.find((b) => b.id === nextBeatId)!;
         textToSpeak = `${REPEATED_NO_LINE} ${getFullBeatUtterance(nextBeat, state.dealConfig, state)}`;
         beatType = nextBeat.type;
-        toolCalls = getBeatToolCalls(nextBeatId);
+        toolCalls = getBeatToolCalls(nextBeatId, ladderOf(state.dealConfig));
       } else {
         // Speak lead-in line LEAD_IN_NO, then the same beat once more plus its check-in
         const currentBeat = BEATS.find((b) => b.id === state.current_beat)!;
@@ -3659,14 +3646,14 @@ async function runControllerTurn(
 
       let responseText = "";
       if (state.delivered_beats.includes(targetId)) {
-        responseText = BEAT_RECAPS[targetId] || "As a quick reminder, that coverage is fully included in your protection package.";
+        responseText = (targetId === 22 ? priceRecap(state.dealConfig) : BEAT_RECAPS[targetId]) || "As a quick reminder, that coverage is fully included in your protection package.";
       } else {
         const beatObj = BEATS.find((b) => b.id === targetId);
         if (beatObj) {
           responseText = formatSpeechText(renderBeatText(beatObj, state.dealConfig));
           state.delivered_beats.push(targetId);
         } else {
-          responseText = BEAT_RECAPS[state.current_beat] || "As a quick reminder, that coverage is fully included in your package.";
+          responseText = (state.current_beat === 22 ? priceRecap(state.dealConfig) : BEAT_RECAPS[state.current_beat]) || "As a quick reminder, that coverage is fully included in your package.";
         }
       }
 
@@ -3708,7 +3695,7 @@ async function runControllerTurn(
         const offerUtterance = getFullBeatUtterance(beat22, state.dealConfig, state);
         textToSpeak = `I hear you loud and clear—let's skip straight to your exact bottom line numbers. ${offerUtterance}`;
         beatType = "wait";
-        toolCalls = getBeatToolCalls(22);
+        toolCalls = getBeatToolCalls(22, ladderOf(state.dealConfig));
       } else {
         // First price ask before Beat 22: speak DEFER_LINE once, then advance
         const nextBeatId = state.current_beat + 1;
@@ -3718,88 +3705,68 @@ async function runControllerTurn(
         const nextUtterance = getFullBeatUtterance(nextBeat, state.dealConfig, state);
         textToSpeak = `${DEFER_LINE} ${nextUtterance}`;
         beatType = nextBeat.type;
-        toolCalls = getBeatToolCalls(nextBeatId);
+        toolCalls = getBeatToolCalls(nextBeatId, ladderOf(state.dealConfig));
       }
       break;
     }
 
     case "negotiate_price": {
-      // Approved ladder: Stage 1 ($4.00) -> Stage 2 ($3.50) -> Stage 3 ($3.25) -> Stage 4 ($3.00 hard floor)
-      // Any offer below $3.00 must trigger manager handoff!
+      // The dealership's approved ladder (demo: $4 -> $3.50 -> $3.25 -> $3 floor). One step down per
+      // push, never below the floor, and a price is only ever one of the ladder's.
+      const ladder = ladderOf(state.dealConfig);
+      const floor = floorOf(ladder);
+      const lastStage = ladder.length;
       const norm = customerTranscript.toLowerCase();
-      const numbersInText = norm.match(/\b\d+(\.\d+)?\b/g)?.map(Number) || [];
-      const hasOfferBelowThree =
-        numbersInText.some((n) => n > 0 && n < 3.0) ||
-        norm.includes("two dollars") ||
-        norm.includes("one dollar") ||
-        norm.includes("two fifty") ||
-        norm.includes("dollar fifty") ||
-        norm.includes("1.50") ||
-        norm.includes("2.50") ||
-        norm.includes("2.00") ||
-        norm.includes("20 dollars a month") ||
-        norm.includes("twenty dollars") ||
-        norm.includes("20 a month");
+      const namedPrice = parseNamedDailyPrice(customerTranscript, ladder);
 
-      // Once the floor was stated, a lowball goes through the floor choice below instead of repeating it
-      if (hasOfferBelowThree && (state.concession_stage || 1) < 4) {
-        state.concession_stage = 4;
-        state.dealConfig.per_day_price = "three dollars";
-        textToSpeak = FLOOR_PRICE_LINE;
+      // A lowball under the floor: straight to the floor, once (then through the floor choice below)
+      if (namedPrice !== null && namedPrice < floor - 0.005 && (state.concession_stage || 1) < lastStage) {
+        state.concession_stage = lastStage;
+        state.dealConfig.per_day_price = spokenPrice(floor);
+        textToSpeak = floorPriceLine(floor);
         beatType = "wait";
-        toolCalls = [{ name: "show_payment_breakdown", args: { daily_rate: 3.0 } }];
+        toolCalls = [{ name: "show_payment_breakdown", args: { daily_rate: floor } }];
         break;
       }
 
-      const currentStage = state.concession_stage || 1;
+      const currentStage = Math.min(state.concession_stage || 1, lastStage);
 
       // Customer names a price at or above what Max is currently offering ("how about three
       // fifty" right after Max offered $3.50): accept the current offer, never drop again.
       // Only a lower number or a push ("still too much", "lower") moves down the ladder.
-      const currentOffer = CONCESSION_LADDER[currentStage] ?? 3.0;
-      const namedPrice = parseNamedDailyPrice(customerTranscript);
+      const currentOffer = priceAtStage(ladder, currentStage);
       const isPushingLower =
         /too much|too high|too expensive|still|lower|cheaper|\bless\b|come down|do better|can t|cant|can't|\bno\b/.test(norm);
-      if (namedPrice !== null && namedPrice >= currentOffer && !isPushingLower && !isPriceRefusal(customerTranscript)) {
+      if (namedPrice !== null && namedPrice >= currentOffer - 0.005 && !isPushingLower && !isPriceRefusal(customerTranscript)) {
         state.no_count_in_a_row = 0;
         state.current_beat = 24;
         state.delivered_beats.push(24);
         const beat24 = BEATS.find((b) => b.id === 24)!;
         textToSpeak = getFullBeatUtterance(beat24, state.dealConfig, state);
         beatType = beat24.type;
-        toolCalls = getBeatToolCalls(24);
+        toolCalls = getBeatToolCalls(24, ladder);
         break;
       }
 
-      if (currentStage === 1) {
-        state.concession_stage = 2;
-        state.dealConfig.per_day_price = "three dollars and fifty cents";
-        textToSpeak = "I understand. While four dollars is our standard rate, the best I can offer directly is three dollars and fifty cents a day. Which two coverages are most important to you?";
+      if (currentStage < lastStage) {
+        // One step down: the first step, a middle step, or the floor
+        const nextStage = currentStage + 1;
+        const offer = ladder[nextStage - 1];
+        state.concession_stage = nextStage;
+        state.dealConfig.per_day_price = spokenPrice(offer);
+        textToSpeak =
+          nextStage === lastStage ? floorConcessionLine(floor) : currentStage === 1 ? firstConcessionLine(ladder[0], offer) : middleConcessionLine(offer);
         beatType = "wait";
-        toolCalls = [{ name: "show_payment_breakdown", args: { daily_rate: 3.5 } }];
-        state.current_beat = 23;
-      } else if (currentStage === 2) {
-        state.concession_stage = 3;
-        state.dealConfig.per_day_price = "three dollars and twenty-five cents";
-        textToSpeak = "I want to make sure you get the right coverage. I can bring that down to three dollars and twenty-five cents a day. Does that sound fair?";
-        beatType = "wait";
-        toolCalls = [{ name: "show_payment_breakdown", args: { daily_rate: 3.25 } }];
-        state.current_beat = 23;
-      } else if (currentStage === 3) {
-        state.concession_stage = 4;
-        state.dealConfig.per_day_price = "three dollars";
-        textToSpeak = "To make this work for you, three dollars a day is our absolute hard floor for full vehicle protection. Are you ready to finalize at three dollars a day?";
-        beatType = "wait";
-        toolCalls = [{ name: "show_payment_breakdown", args: { daily_rate: 3.0 } }];
+        toolCalls = [{ name: "show_payment_breakdown", args: { daily_rate: offer } }];
         state.current_beat = 23;
       } else if (!state.floor_decision_asked) {
-        // Pushback after the $3 floor was stated (test batch: the floor line 4 times): let them choose
-        state.concession_stage = 4;
-        state.dealConfig.per_day_price = "three dollars";
+        // Pushback after the floor was stated (test batch: the floor line 4 times): let them choose
+        state.concession_stage = lastStage;
+        state.dealConfig.per_day_price = spokenPrice(floor);
         state.floor_decision_asked = true;
-        textToSpeak = FLOOR_DECISION_LINE;
+        textToSpeak = floorDecisionLine(floor);
         beatType = "wait";
-        toolCalls = [{ name: "show_payment_breakdown", args: { daily_rate: 3.0 } }];
+        toolCalls = [{ name: "show_payment_breakdown", args: { daily_rate: floor } }];
         state.current_beat = 23;
       } else {
         // Still no after the choice: accept it, no package, on to the paperwork
@@ -4014,7 +3981,7 @@ async function runControllerTurn(
         const nextUtterance = getFullBeatUtterance(nextBeat, state.dealConfig, state);
         textToSpeak = `Understood, getting straight to it. ${nextUtterance}`;
         beatType = nextBeat.type;
-        toolCalls = getBeatToolCalls(state.current_beat);
+        toolCalls = getBeatToolCalls(state.current_beat, ladderOf(state.dealConfig));
       } else {
         state.is_impatient_flow = true;
         textToSpeak = EQ_DEESCALATION_LINE;
@@ -4043,7 +4010,7 @@ async function runControllerTurn(
           : `${IDENTITY_LINE} ${getFullBeatUtterance(currentBeat, state.dealConfig)}`;
         textToSpeak = checkInOrUtterance;
         beatType = currentBeat.type;
-        toolCalls = getBeatToolCalls(state.current_beat);
+        toolCalls = getBeatToolCalls(state.current_beat, ladderOf(state.dealConfig));
       } else {
         textToSpeak = IDENTITY_LINE;
         beatType = "wait";
@@ -4098,7 +4065,7 @@ async function runControllerTurn(
           : `${SALES_CALL_LINE} ${getFullBeatUtterance(currentBeat, state.dealConfig)}`;
         textToSpeak = checkInOrUtterance;
         beatType = currentBeat.type;
-        toolCalls = getBeatToolCalls(state.current_beat);
+        toolCalls = getBeatToolCalls(state.current_beat, ladderOf(state.dealConfig));
       } else {
         textToSpeak = SALES_CALL_LINE;
         beatType = "wait";
@@ -4115,7 +4082,7 @@ async function runControllerTurn(
           : `${CALL_PURPOSE_LINE} ${getFullBeatUtterance(currentBeat, state.dealConfig)}`;
         textToSpeak = checkInOrUtterance;
         beatType = currentBeat.type;
-        toolCalls = getBeatToolCalls(state.current_beat);
+        toolCalls = getBeatToolCalls(state.current_beat, ladderOf(state.dealConfig));
       } else {
         textToSpeak = CALL_PURPOSE_LINE;
         beatType = "wait";
@@ -4131,7 +4098,7 @@ async function runControllerTurn(
         // Answer, then re-ask the question Max is waiting on, so the next "yeah" answers that question
         textToSpeak = `${PRESENCE_LINE} ${pendingQuestion(state)}`;
         beatType = "wait";
-        toolCalls = getBeatToolCalls(state.current_beat);
+        toolCalls = getBeatToolCalls(state.current_beat, ladderOf(state.dealConfig));
       } else {
         textToSpeak = "I'm right here with you! Can you hear and see me alright?";
         beatType = "wait";
@@ -4215,13 +4182,13 @@ async function runControllerTurn(
       const norm = customerTranscript.toLowerCase();
       if (state.current_beat === 22) {
         if (norm.includes("per day") || norm.includes("per month") || norm.includes("day or month")) {
-          textToSpeak = UNIT_PRICE_LINE;
+          textToSpeak = unitPriceLine(priceAtStage(ladderOf(state.dealConfig), state.concession_stage));
           beatType = "wait";
           toolCalls = [];
           break;
         }
         if (norm.includes("total") || norm.includes("what is the total") || norm.includes("whats the total") || norm.includes("what s the total")) {
-          textToSpeak = TOTAL_PRICE_LINE;
+          textToSpeak = totalPriceLine(priceAtStage(ladderOf(state.dealConfig), state.concession_stage));
           beatType = "wait";
           toolCalls = [];
           break;

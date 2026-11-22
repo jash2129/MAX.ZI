@@ -3,7 +3,13 @@ export interface DealConfig {
   vehicle_year: string;
   vehicle_make: string;
   vehicle_model: string;
+  /** The daily rate Max is currently offering, in words ("four dollars") */
   per_day_price: string;
+  /**
+   * The dealership's approved daily-rate ladder, highest first; the last step is the floor.
+   * Unset = the demo ladder ($4 -> $3.50 -> $3.25 -> $3). See price-ladder.ts.
+   */
+  price_ladder?: number[];
 }
 
 export const HYUNDAI_DEAL_CONFIG: DealConfig = {
@@ -21,3 +27,16 @@ export const DEFAULT_DEAL_CONFIG: DealConfig = {
   vehicle_model: "CX five",
   per_day_price: "four dollars",
 };
+
+/** The demo default, with only the client-safe fields taken from the request */
+export function clientDealConfig(raw: unknown): DealConfig {
+  const d = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const text = (v: unknown, fallback: string | undefined) => (typeof v === "string" && v.trim() ? v.trim().slice(0, 60) : fallback);
+  return {
+    ...DEFAULT_DEAL_CONFIG,
+    dealership_name: text(d.dealership_name, DEFAULT_DEAL_CONFIG.dealership_name),
+    vehicle_year: text(d.vehicle_year, DEFAULT_DEAL_CONFIG.vehicle_year)!,
+    vehicle_make: text(d.vehicle_make, DEFAULT_DEAL_CONFIG.vehicle_make)!,
+    vehicle_model: text(d.vehicle_model, DEFAULT_DEAL_CONFIG.vehicle_model)!,
+  };
+}

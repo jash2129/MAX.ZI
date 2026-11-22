@@ -4,6 +4,10 @@
 // Approved lines as of Part 3 sign-off.
 // =============================================================================
 
+import { DEFAULT_LADDER, floorOf, spokenPrice, spokenWholeDollars } from "./price-ladder";
+
+const capitalize = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
+
 // Spoken before repeating the current beat after customer says "no"
 // Status: APPROVED
 export const LEAD_IN_NO = "Allow me to go over it really quick to make sure that you understand everything.";
@@ -70,8 +74,10 @@ export const VERIFY_DEFER_LINE = "No problem, you can confirm those details on y
 // Spoken when customer gives repeated consecutive No answers
 export const REPEATED_NO_LINE = "I completely understand and respect your decision. Let's move forward to review and finalize your standard purchase paperwork.";
 
-// Spoken when price floor ($3/day) is reached or breached
-export const FLOOR_PRICE_LINE = "Three dollars a day is our absolute hard floor for full vehicle protection — at less than the cost of a cup of coffee, it's the strongest coverage we offer. Let's get you locked in.";
+// Spoken when the price floor is reached or breached (a lowball under the floor)
+export const floorPriceLine = (floor: number) =>
+  `${capitalize(spokenPrice(floor))} a day is our absolute hard floor for full vehicle protection — at less than the cost of a cup of coffee, it's the strongest coverage we offer. Let's get you locked in.`;
+export const FLOOR_PRICE_LINE = floorPriceLine(floorOf(DEFAULT_LADDER));
 
 // Spoken when customer asks if Max is an AI / real person
 // Status: APPROVED
@@ -123,8 +129,10 @@ export const MOVE_ON_LINE = "No problem, let's keep going.";
 export const CONSENT_SHORT_LINE = "In short, this call is recorded, and I go over your paperwork with you before you sign. Is it okay if we continue?";
 // Repeated misses at the price: a plain decision, never an assumed yes. Status: PENDING TXM
 export const PRICE_DECISION_LINE = "Would you like to go ahead with the protection package, or not today?";
-// Pushback after the $3 floor was stated: the customer chooses. Status: PENDING TXM
-export const FLOOR_DECISION_LINE = "I understand. Three dollars a day is the lowest I can go. Would you like to go ahead at three dollars a day, or keep just your factory warranty?";
+// Pushback after the floor was stated: the customer chooses. Status: PENDING TXM
+export const floorDecisionLine = (floor: number) =>
+  `I understand. ${capitalize(spokenPrice(floor))} a day is the lowest I can go. Would you like to go ahead at ${spokenPrice(floor)} a day, or keep just your factory warranty?`;
+export const FLOOR_DECISION_LINE = floorDecisionLine(floorOf(DEFAULT_LADDER));
 // The customer declines the package at the floor: accepted, then on to the paperwork. Status: PENDING TXM
 export const DECLINE_LINE = "No problem at all, you'll keep your factory warranty. Let's finish your paperwork.";
 // Asked when the customer is still confused after an explanation. Status: PENDING TXM
@@ -246,8 +254,21 @@ export const ANSWER_CHECK_LINE = "Does that answer your question?";
 export const TIRE_EXCLUSION_LINE = "You can certainly use your own tires, but the tire and wheel package protects your tires and wheels against road hazard damage with zero deductible.";
 export const MAINTENANCE_EXCLUSION_LINE = "I understand you do your own maintenance! The package covers synthetic oil and filter changes so you have zero out-of-pocket expenses.";
 export const DROP_COVERAGE_LINE = "If you'd like to drop the tire and wheel package, we can adjust the coverage options to fit what you need most.";
-export const UNIT_PRICE_LINE = "That's four dollars a day, which works out to about one hundred and twenty dollars a month on your paperwork.";
-export const TOTAL_PRICE_LINE = "The total for full vehicle protection is four dollars a day over your contract term.";
+// The rate Max is offering NOW (the demo always said the opening $4, even after coming down)
+export const unitPriceLine = (price: number) =>
+  `That's ${spokenPrice(price)} a day, which works out to about ${spokenWholeDollars(price * 30)} a month on your paperwork.`;
+export const totalPriceLine = (price: number) => `The total for full vehicle protection is ${spokenPrice(price)} a day over your contract term.`;
+export const UNIT_PRICE_LINE = unitPriceLine(DEFAULT_LADDER[0]);
+export const TOTAL_PRICE_LINE = totalPriceLine(DEFAULT_LADDER[0]);
+
+// Negotiation steps (beat-controller.ts negotiate_price). The words are the demo's approved lines, with
+// the dealership's prices: the first step down, any middle step, and the floor.
+export const firstConcessionLine = (opening: number, offer: number) =>
+  `I understand. While ${spokenPrice(opening)} is our standard rate, the best I can offer directly is ${spokenPrice(offer)} a day. Which two coverages are most important to you?`;
+export const middleConcessionLine = (offer: number) =>
+  `I want to make sure you get the right coverage. I can bring that down to ${spokenPrice(offer)} a day. Does that sound fair?`;
+export const floorConcessionLine = (floor: number) =>
+  `To make this work for you, ${spokenPrice(floor)} a day is our absolute hard floor for full vehicle protection. Are you ready to finalize at ${spokenPrice(floor)} a day?`;
 export const THINK_ABOUT_IT_LINE = "I completely understand taking time to think about it. Protecting your family budget from sudden repair bills is important. What part of the coverage can I clarify for you?";
 export const NOT_FUNNY_LINE = "I understand. Let's focus on the protection options for your vehicle.";
 export const TECH_ISSUE_LINE = "I'm sorry about that! Let me check the connection on my end. Can you see and hear me clearly now?";

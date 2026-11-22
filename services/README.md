@@ -22,8 +22,14 @@ browser ──(Daily room: mic in; avatar video, Max's audio, panel events out)�
   - Done: the control-plane database (row-level security, roles, version lifecycle, release gate,
     audit, cross-tenant test; 30 tests), and the brain reading live config from it (6 more tests).
     The demo's content is seeded as approved v1.
-  - Next: the controller reads beats, fixed lines, knowledge base and price ladder **per call**, from
-    the live versions. Until then the brain refuses any live content that differs from the demo's,
-    so an approval can never claim something customers don't hear.
+  - Done: **per-dealership price ladders.** Every price Max says, shows or checks comes from the
+    call's own approved ladder (`tavus-avatar/src/lib/price-ladder.ts`), tested on five different
+    ladders with the hard rules checked on every turn. Calls in progress keep their ladder.
+  - Next: beats, fixed lines and knowledge base per call. Until then the brain refuses a live script
+    or knowledge base that differs from the demo's, so an approval never claims something customers
+    don't hear.
+  - Open question (yours to decide): a lowball under the floor ("can you do two dollars?") gets the
+    floor at once, skipping steps. That's the demo's existing TXM-approved behavior; read strictly,
+    the PRD's "one step down per refusal" would forbid it.
 - **Later phases** (admin portal, call records written by the worker, recordings, dashboards,
   billing): not started. The tables for call records already exist under row-level security.

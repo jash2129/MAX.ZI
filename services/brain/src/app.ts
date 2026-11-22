@@ -82,7 +82,9 @@ function dealConfigFor(dealership: DealershipConfig, deal: unknown): DealConfig 
     vehicle_year: str(d.vehicle_year, dealership.default_vehicle.year),
     vehicle_make: str(d.vehicle_make, dealership.default_vehicle.make),
     vehicle_model: str(d.vehicle_model, dealership.default_vehicle.model),
-    per_day_price: "four dollars",
+    // The controller sets per_day_price from the ladder's opening price when the call starts
+    per_day_price: "",
+    price_ladder: [...dealership.price_ladder],
   };
 }
 

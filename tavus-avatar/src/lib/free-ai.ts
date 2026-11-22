@@ -8,8 +8,8 @@
  * declined.
  *
  * What is still enforced in code, because one wrong sentence here is a legal or money problem:
- *  - prices: only $4 / $3.50 / $3.25 / $3 a day, never under $3, only from the price beats on, and
- *    never more than one step below the lowest price already offered;
+ *  - prices: only the dealership's ladder (the demo's is $4 / $3.50 / $3.25 / $3 a day), never under its
+ *    floor, only from the price beats on, and never more than one step below the lowest already offered;
  *  - no number, make, or risky claim (free, guarantee, refund, insurance ...) the script and the
  *    knowledge base do not contain, and never claims to be human;
  *  - the recording disclosure: the call cannot pass Beat 1 until it has been said, and it is added
@@ -22,9 +22,11 @@
  */
 import { addedRisk, numberTokens } from "./ai-speech";
 import { llmTarget, partialJsonString, streamChat, takeLeadSentences } from "./llm-stream";
+import { DEFAULT_LADDER, floorOf, spokenDailyRates, spokenPrice, stageOfPrice } from "./price-ladder";
 
 export const FREE_AI_TIMEOUT_MS = Number(process.env.FREE_AI_TIMEOUT_MS) || 4000;
-export const PRICE_LADDER = [4, 3.5, 3.25, 3] as const;
+/** The demo ladder; a call's own ladder comes from its dealConfig (price-ladder.ts) */
+export const PRICE_LADDER = DEFAULT_LADDER;
 export const PRICE_BEAT = 22;
 export const LAST_BEAT = 25;
 const MAX_WORDS = 220;
@@ -54,10 +56,14 @@ export interface FreeScript {
   vehicle: string;
   /** the recording disclosure, word for word (Beat 1) */
   disclosure: string;
+  /** the dealership's daily-rate ladder, highest first (default: the demo's) */
+  ladder?: readonly number[];
 }
 
 export function buildFreeSystemPrompt(script: FreeScript): string {
   const beats = script.beats.map((b) => `Beat ${b.id}: ${b.text}`).join("\n");
+  const ladder = script.ladder ?? DEFAULT_LADDER;
+  const floor = spokenPrice(floorOf(ladder));
   return `You are Max, a warm, friendly finance manager at the dealership, on a video call with a customer who just bought a ${script.vehicle}. You run this whole call yourself, in your own words, like a real person who listens.
 
 THE SCRIPT (approved by the dealership; this is your plan and your facts, in order):
@@ -69,7 +75,7 @@ ${script.facts}
 HOW TO RUN THE CALL
 1. You already said "Can you hear and see me alright?". Have a short, friendly chat (ask how their experience has been), then give the recording disclosure. Say this sentence word for word: "${script.disclosure}" and get their okay before anything else. If they object to being recorded, thank them and end the call.
 2. Go through the script beats in order. Cover every point, in your own natural words, a beat or two per reply. React to what the customer actually says. Skip a question they already answered. Answer their questions, then come back to where you were.
-3. PRICE: never talk about price or cost before Beat 22, even if asked ("I'll get to that in just a moment"). At Beat 22 the price is four dollars a day. Lower it only when the customer pushes back, one step at a time: four dollars, then three dollars and fifty cents, then three dollars and twenty-five cents, then three dollars a day. Never below three dollars. Always say prices in words with "a day". At three dollars, give them the choice: go ahead at three dollars a day, or keep just the factory warranty. A refusal is never a yes; only confirm the package when they clearly say yes.
+3. PRICE: never talk about price or cost before Beat 22, even if asked ("I'll get to that in just a moment"). At Beat 22 the price is ${spokenPrice(ladder[0])} a day. Lower it only when the customer pushes back, one step at a time: ${ladder.map(spokenPrice).join(", then ")} a day. Never below ${floor}. Always say prices in words with "a day". At ${floor}, give them the choice: go ahead at ${floor} a day, or keep just the factory warranty. A refusal is never a yes; only confirm the package when they clearly say yes.
 4. FACTS: only from THE SCRIPT and APPROVED FACTS. Never invent a number, coverage detail, refund, cancellation, transfer, insurance, legal or tax answer. If you don't know, say you don't want to guess and the contract paperwork spells it out, then carry on.
 5. There is no human team to hand off to. If they ask for a person or a manager, you are the finance manager and you'll take care of everything right here. Never stop the call because of a question.
 6. If asked whether you are an AI, say honestly you're an AI finance assistant. Never claim to be human.
@@ -128,24 +134,16 @@ export function parseFreeReplyOrText(raw: string, beatBefore: number): FreeReply
   return { say: text, beat: beatBefore, endCall: false, declined: false };
 }
 
-const AMOUNT_WORDS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5 };
-/** Every daily price said ("three dollars and fifty cents a day", "$3.25 per day") */
+/** Every daily price said ("three dollars and fifty cents a day", "$3.25 per day"), in order */
 export function dailyPrices(text: string): number[] {
-  const t = text.toLowerCase();
-  const out: number[] = [];
-  for (const m of t.matchAll(/\b(one|two|three|four|five) dollars?(?: and (twenty[- ]five|fifty|seventy[- ]five) cents)?(?= (?:a|per|each) day)/g)) {
-    const cents = m[2] ? (m[2].startsWith("fifty") ? 0.5 : m[2].startsWith("twenty") ? 0.25 : 0.75) : 0;
-    out.push(AMOUNT_WORDS[m[1]] + cents);
-  }
-  for (const m of t.matchAll(/\$\s?(\d+(?:\.\d{1,2})?)\s*(?:a day|per day|each day|\/day)/g)) out.push(Number(m[1]));
-  return out;
+  return spokenDailyRates(text);
 }
 
-/** The lowest price the AI may say now: $4 first, then one step below the lowest already offered */
-export function lowestAllowedPrice(lowestOffered: number | null | undefined): number {
-  if (lowestOffered === null || lowestOffered === undefined) return PRICE_LADDER[0];
-  const i = PRICE_LADDER.indexOf(lowestOffered as (typeof PRICE_LADDER)[number]);
-  return PRICE_LADDER[Math.min(PRICE_LADDER.length - 1, (i < 0 ? 0 : i) + 1)];
+/** The lowest price the AI may say now: the opening price first, then one step below the lowest offered */
+export function lowestAllowedPrice(lowestOffered: number | null | undefined, ladder: readonly number[] = DEFAULT_LADDER): number {
+  if (lowestOffered === null || lowestOffered === undefined) return ladder[0];
+  const i = stageOfPrice(ladder, lowestOffered) - 1;
+  return ladder[Math.min(ladder.length - 1, (i < 0 ? 0 : i) + 1)];
 }
 
 const UNIT = /^(years?|months?|miles?|days?|hours?|percent|degrees?|dollars?|cents?|times?)$/;
@@ -174,6 +172,8 @@ export interface GuardContext {
   customerSaid?: string;
   /** Max's last two lines: saying one of them again word for word is a loop */
   recentMax?: string[];
+  /** the dealership's ladder (default: the demo's) */
+  ladder?: readonly number[];
 }
 
 const loopKey = (t: string) => t.toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim().slice(0, 90);
@@ -195,6 +195,7 @@ export function guardFreeReply(reply: FreeReply, ctx: GuardContext): GuardResult
  */
 export function guardFreeText(t: string, ctx: GuardContext, beat: number, whole: boolean): GuardResult {
   const prices = dailyPrices(t);
+  const ladder = ctx.ladder ?? DEFAULT_LADDER;
   const fail = (reason: string): GuardResult => ({ ok: false, reason, prices });
   if (/[*#_`{}<>\[\]]|\n\s*[-•]/.test(t)) return fail("formatting");
   const words = t.split(/\s+/).filter(Boolean).length;
@@ -204,9 +205,9 @@ export function guardFreeText(t: string, ctx: GuardContext, beat: number, whole:
   // Prices: approved steps only, only from the price beats, one step at a time
   if (prices.length) {
     if (beat < PRICE_BEAT - 1) return fail(`price before Beat ${PRICE_BEAT}`);
-    const floor = lowestAllowedPrice(ctx.lowestOffered);
+    const floor = lowestAllowedPrice(ctx.lowestOffered, ladder);
     for (const p of prices) {
-      if (!(PRICE_LADDER as readonly number[]).includes(p)) return fail(`unapproved price $${p}`);
+      if (stageOfPrice(ladder, p) === 0) return fail(`unapproved price $${p}`);
       if (p < floor) return fail(`skipped down to $${p} (lowest allowed now $${floor})`);
     }
   }
@@ -215,9 +216,9 @@ export function guardFreeText(t: string, ctx: GuardContext, beat: number, whole:
   // (simulated batch 2026-11-21: "No" at Beat 23 got "so to confirm, we're moving forward with ...")
   if (ctx.refusedPrice) {
     if (/\b(moving forward with|so to confirm|to confirm,? we)\b/i.test(t)) return fail("confirmed the package right after a refusal");
-    const current = ctx.lowestOffered ?? PRICE_LADDER[0];
-    if (whole && current > PRICE_LADDER[PRICE_LADDER.length - 1] && !prices.some((p) => p < current)) {
-      return fail(`a no at $${current} a day must get the next lower price, $${lowestAllowedPrice(current)} a day`);
+    const current = ctx.lowestOffered ?? ladder[0];
+    if (whole && current > floorOf(ladder) && !prices.some((p) => p < current)) {
+      return fail(`a no at $${current} a day must get the next lower price, $${lowestAllowedPrice(current, ladder)} a day`);
     }
   }
 
@@ -226,13 +227,14 @@ export function guardFreeText(t: string, ctx: GuardContext, beat: number, whole:
   if (whole && key.length > 20 && (ctx.recentMax ?? []).some((m) => loopKey(m) === key)) return fail("repeats what Max just said");
 
   // Numbers and claims the script and facts do not make (the customer's own numbers are fine)
-  const allowed = new Set(numberTokens(`${ctx.corpus} ${ctx.customerSaid ?? ""} four three fifty twenty five`));
+  const allowed = new Set(numberTokens(`${ctx.corpus} ${ctx.customerSaid ?? ""} ${ladder.map(spokenPrice).join(" ")}`));
   for (const n of numberTokens(t)) if (!allowed.has(n)) return fail(`new number "${n}"`);
   // A number with its unit must appear with that unit somewhere approved: "twelve" may be in the
   // script, "twelve years" is not
   const corpusUnits = new Set(numberWithUnit(`${ctx.corpus} ${ctx.customerSaid ?? ""}`));
   for (const p of numberWithUnit(t)) if (!corpusUnits.has(p) && !/ (dollar|cent)$/.test(p)) return fail(`new figure "${p}"`);
-  const risk = addedRisk(t, `${ctx.corpus} ${ctx.customerSaid ?? ""}`);
+  // The ladder's prices are approved text too ("four dollars and fifty cents" may not be in the script)
+  const risk = addedRisk(t, `${ctx.corpus} ${ctx.customerSaid ?? ""} ${ladder.map(spokenPrice).join(" ")}`);
   if (risk) return fail(risk);
   return { ok: true, prices };
 }
