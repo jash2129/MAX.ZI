@@ -18,9 +18,15 @@ browser ──(Daily room: mic in; avatar video, Max's audio, panel events out)�
 
 Set up 2026-11-23:
 
-- **Migrations:** 001-010 applied (010, the call page, on 2026-11-23).
+- **Migrations:** 001-011 applied (010, the call page, and 011, recordings, on 2026-11-23).
 - **Snapshots:** taken before 007-009, as branch `pre-migration-2026-11-23`, and before 010, as branch
-  `pre-migration-010-2026-11-23` (both kept until 2026-12-06).
+  `pre-migration-010-2026-11-23` (both kept until 2026-12-06); before 011, as branch
+  `pre-migration-011-2026-11-23` (kept until 2026-12-07).
+- **Recording checks, read-only:** the brain's login can't read recordings or the file deletion queue
+  and can't insert recordings directly, only through `app.add_recording` (an unknown call is refused,
+  checked in a rolled-back transaction). The portal login without a signed-in person sees no
+  recordings, can't read the queue, and can't log a playback. No recordings yet: recording turns on
+  once a bucket and `npm run recording-keys` are set up (DEPLOY-RENDER.md).
 - **Call page checks, read-only with `portal_login`:** both demo dealerships are ready (no product
   terms yet); unknown dealerships return nothing; claiming a deal that doesn't exist uses nothing.
   Deals stay hidden from the portal login without a signed-in person (proved on the test branch,
