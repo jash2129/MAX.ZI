@@ -1,4 +1,3 @@
-import beatsData from "./beats.json" with { type: "json" };
 import { DEFAULT_DEAL_CONFIG, type DealConfig } from "./deal-config";
 import {
   shouldAskAI,
@@ -24,67 +23,8 @@ import {
 import { approvedFacts } from "./grounded-answer";
 import { DEFAULT_LADDER, floorOf, ladderOf, namedDailyPrice, priceAtStage, samePrice, spokenPrice, stageOfPrice } from "./price-ladder";
 import {
-  LEAD_IN_NO,
-  GARBLED_LINE,
-  DEFER_LINE,
-  OUT_OF_SCRIPT_LINE,
-  HANDOFF_LINE,
-  AI_DISCLOSURE_LINE,
-  STEP_0_GREETING,
-  STEP_0_RAPPORT_LINE,
-  STEP_0_TRANSITION_LINE,
-  STEP_0_OPENER_LINE,
-  STEP_0_CHECKIN_LINE,
-  STEP_0_INTRO_LINE,
-  STEP_0_SORRY_LINE,
-  STEP_0_NEUTRAL_ACK_LINE,
-  NO_PRESSURE_LINE,
-  TAKE_TIME_LINE,
-  WHICH_PART_LINE,
-  ROLE_EXPLAIN_LINE,
-  PRICE_LATER_LINE,
-  UNKNOWN_QUESTION_VARIANTS,
-  REPHRASE_LINE,
-  MOVE_ON_LINE,
-  CONSENT_SHORT_LINE,
-  PRICE_DECISION_LINE,
-  DECLINE_LINE,
   BEAT_TRANSITION_BRIDGES,
-  PAUSE_LINE,
-  LISTENING_LINE,
-  SLOW_DOWN_LINE,
-  COMPLIMENT_LINE,
-  IDENTITY_LINE,
-  EQ_DEESCALATION_LINE,
-  EQ_REASSURANCE_LINE,
-  EQ_EXCITEMENT_LINE,
-  EQ_HUMOR_BRIDGES,
-  INSURANCE_LINE,
-  SPOUSE_LINE,
-  CANCELLATION_LINE,
-  VEHICLE_DISCREPANCY_LINE,
-  MANUFACTURER_VS_DEALER_LINE,
-  SALES_CALL_LINE,
-  CALL_PURPOSE_LINE,
-  SCRIPT_COMPLETE_LINE,
-  REPEATED_NO_LINE,
-  UNKNOWN_QUESTION_LINE,
-  CLOSING_LINE,
-  LANGUAGE_LINE,
-  VERIFY_REASK_LINE,
-  VERIFY_DEFER_LINE,
-  CHOSEN_COVERAGE_CONFIRM_LINE,
-  KEEP_COVERAGES_REASK_LINE,
-  STILL_WITH_ME_LINE,
-  PRESENCE_LINE,
-  TECH_CHECK_ACK_LINE,
-  VEHICLE_NOTED_LINE,
-  VEHICLE_CONFIRM_LINE,
-  CLARIFY_LINE,
-  ANSWER_CHECK_LINE,
-  TIRE_EXCLUSION_LINE,
-  MAINTENANCE_EXCLUSION_LINE,
-  DROP_COVERAGE_LINE,
+  UNKNOWN_QUESTION_VARIANTS,
   unitPriceLine,
   totalPriceLine,
   floorPriceLine,
@@ -92,23 +32,16 @@ import {
   firstConcessionLine,
   middleConcessionLine,
   floorConcessionLine,
-  THINK_ABOUT_IT_LINE,
-  NOT_FUNNY_LINE,
-  TECH_ISSUE_LINE,
-  MARKUP_OBJECTION_LINE,
 } from "./max-lines";
+import { BUILT_IN_BEATS, L, callDisclosure, contentFor, currentContent, scriptBeats, withCallContent, type CallContent } from "./call-content";
 import { normalizeSpeech } from "./echo-guard";
 import { answerFromKnowledgeBase, looksLikeQuestion } from "./grounded-answer";
 
-export interface Beat {
-  id: number;
-  type: "wait" | "continue";
-  text: string;
-  check_in: string | null;
-  expects?: "consent" | "yes_no" | "open" | "statement";
-}
+export type { Beat } from "./call-content";
+import type { Beat } from "./call-content";
 
-export const BEATS: Beat[] = beatsData as Beat[];
+/** The demo's built-in beats. A call reads its own (possibly a dealership's) with scriptBeats(). */
+export const BEATS: Beat[] = BUILT_IN_BEATS;
 
 export interface CallState {
   current_beat: number;
@@ -217,7 +150,7 @@ export function getBeatCheckInQuestion(beat: Beat): string {
 }
 
 export const BEAT_RECAPS: Record<number, string> = {
-  6: "As a quick recap, your Mazda comes with the five-year sixty thousand mile base warranty and ten-year one hundred thousand mile powertrain coverage.",
+  6: "As a quick recap, your {{vehicle_make}} comes with the five-year sixty thousand mile base warranty and ten-year one hundred thousand mile powertrain coverage.",
   7: "Just to recap, the factory warranty covers factory defects only.",
   8: "As a quick recap, wear and tear from climate, roads, and driving causes ninety-five percent of breakdowns.",
   9: "As a recap, potholes and road hazards cause severe wear on tires, rims, and sensors.",
@@ -234,6 +167,16 @@ export const BEAT_RECAPS: Record<number, string> = {
   20: "To recap, you get ten-year one hundred thousand mile bumper-to-bumper coverage with zero deductible.",
   21: "To recap, you get the five-year tire and wheel protection and five-year maintenance package.",
 };
+/** Beats with a built-in recap: a dealership that rewords one must give its own (call-content.ts) */
+export const RECAP_BEATS = Object.keys(BEAT_RECAPS).map(Number);
+
+/** The recap for a beat: Beat 22 carries the current price; others the dealership's or the built-in one */
+function recapFor(beatId: number, dealConfig: DealConfig): string | undefined {
+  if (beatId === 22) return priceRecap(dealConfig);
+  const recap = currentContent().recaps[String(beatId)] ?? BEAT_RECAPS[beatId];
+  return recap === undefined ? undefined : fillPlaceholders(recap, dealConfig);
+}
+
 /** Beat 22's recap carries the price, so it is built from the call's current offer */
 export function priceRecap(dealConfig: DealConfig): string {
   return `That full vehicle protection package is just ${dealConfig.per_day_price} a day.`;
@@ -394,12 +337,31 @@ function applyPointer(target: CallState, p: DeliveryPointer): void {
  * turnId until commitTurn() confirms delivery, and (2) if the previous reply was not heard, a bare
  * confirmation resumes it from the sentence where Max was cut.
  */
+/**
+ * Everything a call does runs inside its content (script, lines, knowledge base), pinned at its start.
+ * A call created here without a dealership script uses the built-in content.
+ */
+function inCall<T>(sessionId: string, dealConfig: DealConfig, fn: () => T): T {
+  const state = activeStates.get(sessionId);
+  return withCallContent(contentFor(state?.dealConfig ?? dealConfig, RECAP_BEATS), fn);
+}
+
 export async function processClientTurn(
   sessionId: string,
   customerTranscript: string,
   turnId: number,
   dealConfig = DEFAULT_DEAL_CONFIG,
   opts: TurnOptions = {}
+): Promise<ControllerDecision> {
+  return inCall(sessionId, dealConfig, () => processClientTurnIn(sessionId, customerTranscript, turnId, dealConfig, opts));
+}
+
+async function processClientTurnIn(
+  sessionId: string,
+  customerTranscript: string,
+  turnId: number,
+  dealConfig: DealConfig,
+  opts: TurnOptions
 ): Promise<ControllerDecision> {
   const state = getOrCreateCallState(sessionId, dealConfig);
   // A new turn implies the previous reply was not rolled back in time: keep it
@@ -417,7 +379,7 @@ export async function processClientTurn(
       applyPointer(state, pending.after);
       const resumeText = scrubDisputedVehicle(pending.remaining, state);
       state.last_spoken_text = resumeText;
-      const beat = BEATS.find((b) => b.id === state.current_beat);
+      const beat = scriptBeats().find((b) => b.id === state.current_beat);
       const decision: ControllerDecision = {
         textToSpeak: resumeText,
         beatId: state.current_beat,
@@ -458,6 +420,10 @@ export function commitTurn(
   delivered: boolean,
   spokenFraction = 0
 ): { rolledBack: boolean; reason?: string } {
+  return inCall(sessionId, DEFAULT_DEAL_CONFIG, () => commitTurnIn(sessionId, turnId, delivered, spokenFraction));
+}
+
+function commitTurnIn(sessionId: string, turnId: number, delivered: boolean, spokenFraction: number): { rolledBack: boolean; reason?: string } {
   const pending = pendingCommits.get(sessionId);
   if (!pending || pending.turnId !== turnId) return { rolledBack: false, reason: "not_the_latest_turn" };
   pendingCommits.delete(sessionId);
@@ -497,12 +463,16 @@ export function commitTurn(
  * Never advances the script except to re-apply a reply the customer is about to hear.
  */
 export function repromptText(sessionId: string, kind: "resume" | "still_with_me" | "clarify"): string {
+  return inCall(sessionId, DEFAULT_DEAL_CONFIG, () => repromptTextIn(sessionId, kind));
+}
+
+function repromptTextIn(sessionId: string, kind: "resume" | "still_with_me" | "clarify"): string {
   const state = getOrCreateCallState(sessionId);
   if (!state.step0_completed && !(kind === "resume" && state.interrupted)) {
     // Test calls: after "How has your experience been?" a silence re-asked "Can you hear and see me
     // alright?", two or three times in a row. Re-ask what Max last asked instead.
-    const question = lastQuestionOf(state.last_spoken_text) || STEP_0_GREETING;
-    const text = kind === "still_with_me" ? `${STILL_WITH_ME_LINE} ${question}` : question;
+    const question = lastQuestionOf(state.last_spoken_text) || L.STEP_0_GREETING;
+    const text = kind === "still_with_me" ? `${L.STILL_WITH_ME_LINE} ${question}` : question;
     state.last_spoken_text = text;
     return text;
   }
@@ -513,7 +483,7 @@ export function repromptText(sessionId: string, kind: "resume" | "still_with_me"
     state.last_spoken_text = scrubDisputedVehicle(remaining, state);
     return state.last_spoken_text;
   }
-  const text = kind === "clarify" ? CLARIFY_LINE : kind === "still_with_me" ? `${STILL_WITH_ME_LINE} ${pendingQuestion(state)}` : pendingQuestion(state);
+  const text = kind === "clarify" ? L.CLARIFY_LINE : kind === "still_with_me" ? `${L.STILL_WITH_ME_LINE} ${pendingQuestion(state)}` : pendingQuestion(state);
   state.last_spoken_text = scrubDisputedVehicle(text, state);
   if (isFreeAIEnabled()) pushFree(state, "", state.last_spoken_text);
   return state.last_spoken_text;
@@ -521,12 +491,13 @@ export function repromptText(sessionId: string, kind: "resume" | "still_with_me"
 
 export function getOrCreateCallState(sessionId: string, dealConfig = DEFAULT_DEAL_CONFIG): CallState {
   if (!activeStates.has(sessionId)) {
-    // A dealership ladder sets the opening price; an invalid ladder throws here, before a word is said
+    // A dealership ladder sets the opening price; an invalid ladder or script throws here, before a word is said
     const opening = dealConfig.price_ladder ? spokenPrice(ladderOf(dealConfig)[0]) : dealConfig.per_day_price;
+    const greeting = withCallContent(contentFor(dealConfig, RECAP_BEATS), () => L.STEP_0_GREETING);
     activeStates.set(sessionId, {
       current_beat: 0,
       delivered_beats: [],
-      last_spoken_text: STEP_0_GREETING,
+      last_spoken_text: greeting,
       no_count_in_a_row: 0,
       negotiated_price_so_far: null,
       concession_stage: 1,
@@ -554,19 +525,25 @@ export function renderBeatText(beat: Beat, dealConfig: DealConfig, state?: CallS
     const chosen = state?.chosen_coverages ?? [];
     if (chosen.length > 0 && chosen.length < COVERAGES.length) {
       // Customer named only some coverages: repeat back their choice, never claim "full", same price
-      rendered = CHOSEN_COVERAGE_CONFIRM_LINE.replace("{{coverages}}", chosen.join(" and the "))
+      rendered = L.CHOSEN_COVERAGE_CONFIRM_LINE.replace("{{coverages}}", chosen.join(" and the "))
         .replace("{{price}}", dealConfig.per_day_price)
         .replace("{{vehicle}}", yearMakeModel);
     } else {
       rendered = `"Great, so to confirm, we're moving forward with full vehicle protection for ${dealConfig.per_day_price} a day on your ${yearMakeModel}."`;
     }
   } else {
-    rendered = rendered.replace(/\{\{vehicle_year\}\}/g, dealConfig.vehicle_year);
-    rendered = rendered.replace(/\{\{vehicle_make\}\}/g, dealConfig.vehicle_make);
-    rendered = rendered.replace(/\{\{vehicle_model\}\}/g, dealConfig.vehicle_model);
-    rendered = rendered.replace(/\{\{per_day_price\}\}/g, dealConfig.per_day_price);
+    rendered = fillPlaceholders(rendered, dealConfig);
   }
   return rendered;
+}
+
+/** {{vehicle_year}}, {{vehicle_make}}, {{vehicle_model}}, {{per_day_price}} from the deal */
+export function fillPlaceholders(text: string, dealConfig: DealConfig): string {
+  return text
+    .replace(/\{\{vehicle_year\}\}/g, dealConfig.vehicle_year)
+    .replace(/\{\{vehicle_make\}\}/g, dealConfig.vehicle_make)
+    .replace(/\{\{vehicle_model\}\}/g, dealConfig.vehicle_model)
+    .replace(/\{\{per_day_price\}\}/g, dealConfig.per_day_price);
 }
 
 // Polish speech text with natural sentence boundaries, prosody pauses, and clean phonetic cadence
@@ -780,11 +757,11 @@ function pendingQuestion(state: CallState): string {
   const askedHere = state.last_question_beat === state.current_beat ? state.last_question ?? "" : "";
   const last = askedHere || lastQuestionOf(state.last_spoken_text);
   if (state.current_beat === 23) {
-    if (/would you like to keep/i.test(last)) return KEEP_COVERAGES_REASK_LINE;
+    if (/would you like to keep/i.test(last)) return L.KEEP_COVERAGES_REASK_LINE;
     if (/which two|most important to you/i.test(last)) return "Which two of those do you see the most value in?";
   }
   if (askedHere) return askedHere;
-  return getBeatCheckInQuestion(BEATS.find((b) => b.id === state.current_beat)!);
+  return getBeatCheckInQuestion(scriptBeats().find((b) => b.id === state.current_beat)!);
 }
 
 // "yes" / "ok" / "sure" (with fillers) does not answer "which two?"
@@ -932,9 +909,9 @@ function vehicleCorrectionReply(state: CallState): string {
   state.vehicle_corrections = (state.vehicle_corrections || 0) + 1;
   const question = state.step0_completed
     ? pendingQuestion(state)
-    : lastQuestionOf(state.last_spoken_text) || STEP_0_GREETING;
-  if (state.vehicle_corrections === 1) return `${VEHICLE_NOTED_LINE} ${question}`;
-  if (state.vehicle_corrections === 2) return `${VEHICLE_CONFIRM_LINE} ${question}`;
+    : lastQuestionOf(state.last_spoken_text) || L.STEP_0_GREETING;
+  if (state.vehicle_corrections === 1) return `${L.VEHICLE_NOTED_LINE} ${question}`;
+  if (state.vehicle_corrections === 2) return `${L.VEHICLE_CONFIRM_LINE} ${question}`;
   return question;
 }
 
@@ -2047,7 +2024,7 @@ export function classifyCustomerInputRuleBased(
   // follow along): nothing to answer, so carry on. The rambler in the test batches got "continue, or
   // go over that again?" after every story and never reached the price. Questions, refusals and
   // pushback are not carried on.
-  const beatDef = BEATS.find((b) => b.id === currentBeatId);
+  const beatDef = scriptBeats().find((b) => b.id === currentBeatId);
   if (
     currentBeatId >= 6 &&
     currentBeatId <= 21 &&
@@ -2139,7 +2116,7 @@ export function isAffirmativeOrProgression(norm: string): boolean {
   return false;
 }
 
-// Longest the remote classifier may take before the turn falls back to hold + CLARIFY_LINE
+// Longest the remote classifier may take before the turn falls back to hold + L.CLARIFY_LINE
 export const LLM_CLASSIFIER_TIMEOUT_MS = 800;
 
 // LLM Classifier using fast model with temperature: 0
@@ -2152,7 +2129,7 @@ export async function classifyWithLLM(
   // AI-first understanding (MAX_UNDERSTANDING=ai): longer replies during Beats 2-21 are read by the AI
   // in context; the rules' answer is the fallback (src/lib/ai-understanding.ts)
   if (extraLLMAllowed() && state.step0_completed && shouldAskAI(customerTranscript, state.current_beat, fastRuleResult.intent)) {
-    const beat = BEATS.find((b) => b.id === state.current_beat);
+    const beat = scriptBeats().find((b) => b.id === state.current_beat);
     const expects = beat?.expects ?? "statement";
     return understandWithAI({
       transcript: customerTranscript,
@@ -2272,7 +2249,9 @@ Otherwise: []`;
 const STEP_0_LISTENING_REPLY = "I'm listening, please go ahead.";
 
 // The Step 0 opener: short opener, a pause, then the check-in question (lands within ~6 s)
-export const STEP_0_OPENING = formatSpeechText(`${STEP_0_OPENER_LINE.replace(/\.$/, "")}... ${STEP_0_CHECKIN_LINE}`);
+/** The Step 0 opener, from the call's lines */
+export const step0Opening = () => formatSpeechText(`${L.STEP_0_OPENER_LINE.replace(/\.$/, "")}... ${L.STEP_0_CHECKIN_LINE}`);
+export const STEP_0_OPENING = step0Opening();
 
 export async function generateStep0Turn(
   customerTranscript: string,
@@ -2299,7 +2278,7 @@ export async function generateStep0Turn(
   // Prevent avatar echo from advancing Step 0 into Beat 1
   if (isAvatarScriptEcho(customerTranscript)) {
     console.warn(`[beat-controller] Step 0 detected avatar script echo: "${customerTranscript}". Staying on Step 0.`);
-    return { text: STEP_0_CHECKIN_LINE, moveToBeat1: false };
+    return { text: L.STEP_0_CHECKIN_LINE, moveToBeat1: false };
   }
 
   // Check tech issues first
@@ -2317,7 +2296,7 @@ export async function generateStep0Turn(
 
   if (isTechIssue) {
     return {
-      text: TECH_ISSUE_LINE,
+      text: L.TECH_ISSUE_LINE,
       moveToBeat1: false,
     };
   }
@@ -2326,7 +2305,7 @@ export async function generateStep0Turn(
   const didntCatch =
     /\b(didn t catch|didnt catch|did not catch|didn t hear|didnt hear|did not hear|sorry what|say that again|say again|come again|pardon|repeat that|what did you say|one more time)\b/.test(norm) ||
     /^(what|sorry|huh|excuse me)$/.test(norm);
-  if (didntCatch) return { text: step0Turns <= 1 ? STEP_0_GREETING : STEP_0_CHECKIN_LINE, moveToBeat1: false };
+  if (didntCatch) return { text: step0Turns <= 1 ? L.STEP_0_GREETING : L.STEP_0_CHECKIN_LINE, moveToBeat1: false };
 
   const isSalesAsk =
     (norm.includes("sales") &&
@@ -2345,10 +2324,10 @@ export async function generateStep0Turn(
     norm.includes("selling");
 
   // Every Step 0 answer ends by asking the Step 0 question again (the check-in, never the whole opener)
-  const step0Question = STEP_0_CHECKIN_LINE;
+  const step0Question = L.STEP_0_CHECKIN_LINE;
 
   if (isSalesAsk) {
-    return { text: `${SALES_CALL_LINE} ${step0Question}`, moveToBeat1: false };
+    return { text: `${L.SALES_CALL_LINE} ${step0Question}`, moveToBeat1: false };
   }
 
   // Turn 1, live call 1ee5181b: "Who's this?" got the congratulations script with no identification.
@@ -2361,18 +2340,18 @@ export async function generateStep0Turn(
       norm === "whats this" ||
       norm === "who";
     if (asksWho) {
-      return { text: `${IDENTITY_LINE} ${STEP_0_OPENING.replace(/^Awesome, great/, "Great")}`, moveToBeat1: false };
+      return { text: `${L.IDENTITY_LINE} ${step0Opening().replace(/^Awesome, great/, "Great")}`, moveToBeat1: false };
     }
     // "Can you hear me?" before answering: acknowledge, then repeat the tech check
     if (/\bcan you (hear|see) me\b/.test(norm)) {
-      return { text: `${TECH_CHECK_ACK_LINE} ${STEP_0_GREETING}`, moveToBeat1: false };
+      return { text: `${L.TECH_CHECK_ACK_LINE} ${L.STEP_0_GREETING}`, moveToBeat1: false };
     }
   }
 
   // Turn 1: customer confirmed audio/video ("i can see you", "yes", etc.)
   // Build rapport & deliver formal greeting asking how their experience was
   if (step0Turns <= 1) {
-    return { text: STEP_0_OPENING, moveToBeat1: false };
+    return { text: step0Opening(), moveToBeat1: false };
   }
 
   // Turn 2+: Check if customer is asking a question or interrupting BEFORE giving a rapport answer
@@ -2458,7 +2437,7 @@ export async function generateStep0Turn(
 
   // A bare filler ("hmm", "uh") is not an answer: re-ask the check-in once, never claim it went well
   const isFiller = /^((h+m+|uh+|um+|er+|ah+|eh|mm+|mhm|uh huh|well|so|oh)\s*)+$/.test(norm);
-  if (isFiller && !opts.fillerReasked) return { text: STEP_0_CHECKIN_LINE, moveToBeat1: false, reasked: true };
+  if (isFiller && !opts.fillerReasked) return { text: L.STEP_0_CHECKIN_LINE, moveToBeat1: false, reasked: true };
 
   // Only a clearly good answer gets "glad to hear that". "not bad" / "no complaints" count as good.
   const softened = norm.replace(/\bnot (too |that |so )?bad\b|\bno complaints\b/g, "fine");
@@ -2474,7 +2453,7 @@ export async function generateStep0Turn(
   // A lone word that says nothing about the experience ("There", "Can", "Are"): a recognition
   // fragment. Ask again once, like a filler, instead of "Thanks for sharing that" and moving on.
   if (!opts.fillerReasked && norm.split(" ").length === 1 && !isPositive && !isHostile && !isUnhappy) {
-    return { text: STEP_0_CHECKIN_LINE, moveToBeat1: false, reasked: true };
+    return { text: L.STEP_0_CHECKIN_LINE, moveToBeat1: false, reasked: true };
   }
 
   // Explicit hurry about THIS call. "The drive over took forever because of the traffic" is not one.
@@ -2502,35 +2481,35 @@ export async function generateStep0Turn(
     norm.includes("thrilled") ||
     norm.includes("pumped");
 
-  let transitionLine = STEP_0_TRANSITION_LINE;
+  let transitionLine = L.STEP_0_TRANSITION_LINE;
   const valueTimeLine = "Understood, I value your time and will keep this crisp, direct, and straight to the point.";
   if (isHostile || (isUnhappy && !isPositive)) {
-    transitionLine = STEP_0_TRANSITION_LINE.replace("Glad to hear that!", STEP_0_SORRY_LINE);
+    transitionLine = L.STEP_0_TRANSITION_LINE.replace("Glad to hear that!", L.STEP_0_SORRY_LINE);
   } else if (isHurry) {
-    transitionLine = STEP_0_TRANSITION_LINE.replace("Glad to hear that!", valueTimeLine);
+    transitionLine = L.STEP_0_TRANSITION_LINE.replace("Glad to hear that!", valueTimeLine);
   } else if (isAnxious) {
-    transitionLine = STEP_0_TRANSITION_LINE.replace(
+    transitionLine = L.STEP_0_TRANSITION_LINE.replace(
       "Glad to hear that!",
       "I completely understand—buying a car is a big decision, so we'll take it one step at a time with zero pressure."
     );
   } else if (isExcited) {
-    transitionLine = STEP_0_TRANSITION_LINE.replace(
+    transitionLine = L.STEP_0_TRANSITION_LINE.replace(
       "Glad to hear that!",
       "I love that excitement! That new car is an absolute blast to drive!"
     );
   } else if (isPositive) {
-    transitionLine = STEP_0_TRANSITION_LINE.replace(
+    transitionLine = L.STEP_0_TRANSITION_LINE.replace(
       "Glad to hear that!",
       "Awesome, so glad to hear that! Our team works really hard to take care of our customers."
     );
   } else if (isWaitComplaint) {
-    transitionLine = STEP_0_TRANSITION_LINE.replace("Glad to hear that!", valueTimeLine);
+    transitionLine = L.STEP_0_TRANSITION_LINE.replace("Glad to hear that!", valueTimeLine);
   } else {
-    transitionLine = STEP_0_TRANSITION_LINE.replace("Glad to hear that!", STEP_0_NEUTRAL_ACK_LINE);
+    transitionLine = L.STEP_0_TRANSITION_LINE.replace("Glad to hear that!", L.STEP_0_NEUTRAL_ACK_LINE);
   }
 
   // The opener no longer introduces Max; do it once here unless he already answered "who are you?"
-  if (!opts.introduced) transitionLine = transitionLine.replace("Now before I start", `${STEP_0_INTRO_LINE} Now before I start`);
+  if (!opts.introduced) transitionLine = transitionLine.replace("Now before I start", `${L.STEP_0_INTRO_LINE} Now before I start`);
 
   return {
     text: formatSpeechText(transitionLine),
@@ -2546,10 +2525,10 @@ export async function generateStep0Turn(
  * 1. NO PRICING OR RATE PROMISES: NEVER state, quote, estimate, or promise interest rates (APR),
  *    monthly payments, loan term/duration, down payment, trade-in value, taxes, or discounts.
  * 2. If the user asks about financing terms, interest rates, monthly payment, down payment, or trade-in value,
- *    MUST defer to human colleague using OUT_OF_SCRIPT_LINE.
+ *    MUST defer to human colleague using L.OUT_OF_SCRIPT_LINE.
  * 3. Max length: 1 single sentence, max 20 words.
  * 4. Zero filler words ("Sure", "Awesome", "Great question", "Got it", "Of course").
- * 5. If response violates constraints (e.g. mentions $, %, rate, apr, payment), immediately fallback to OUT_OF_SCRIPT_LINE.
+ * 5. If response violates constraints (e.g. mentions $, %, rate, apr, payment), immediately fallback to L.OUT_OF_SCRIPT_LINE.
  */
 export async function generateConstrainedOffScriptResponse(
   customerTranscript: string,
@@ -2557,7 +2536,7 @@ export async function generateConstrainedOffScriptResponse(
 ): Promise<string> {
   const norm = customerTranscript.toLowerCase();
 
-  // Hard safety filter: If asking about financial/rates/trade-in/payments, immediately use OUT_OF_SCRIPT_LINE
+  // Hard safety filter: If asking about financial/rates/trade-in/payments, immediately use L.OUT_OF_SCRIPT_LINE
   const financialKeywords = [
     "rate",
     "apr",
@@ -2576,7 +2555,7 @@ export async function generateConstrainedOffScriptResponse(
   ];
 
   if (financialKeywords.some((kw) => norm.includes(kw))) {
-    return OUT_OF_SCRIPT_LINE;
+    return L.OUT_OF_SCRIPT_LINE;
   }
 
   const apiKey = process.env.XAI_API_KEY?.trim() || process.env.OPENAI_API_KEY?.trim();
@@ -2648,7 +2627,7 @@ STRICT CONSTRAINTS:
       replyNorm.includes("per month") ||
       replyNorm.includes("a month")
     ) {
-      return OUT_OF_SCRIPT_LINE;
+      return L.OUT_OF_SCRIPT_LINE;
     }
 
     return reply;
@@ -2670,12 +2649,12 @@ async function handleGroundedTurn(
   skipQuestionGate = false
 ): Promise<{ text: string; beatType: "wait" | "continue" | "stop"; toolCalls: Array<{ name: string; args: Record<string, any> }> }> {
   if (!skipQuestionGate && !looksLikeQuestion(customerTranscript)) {
-    return { text: CLARIFY_LINE, beatType: "wait", toolCalls: [] };
+    return { text: L.CLARIFY_LINE, beatType: "wait", toolCalls: [] };
   }
   const normQ = customerTranscript.toLowerCase();
   const financial = ["rate", "apr", "interest", "monthly payment", "payment", "down payment", "trade in", "trade-in", "credit score", "loan term", "discount", "rebate", "invoice", "msrp"];
   if (financial.some((kw) => normQ.includes(kw))) {
-    return { text: `${OUT_OF_SCRIPT_LINE} ${CLARIFY_LINE}`, beatType: "wait", toolCalls: [] };
+    return { text: `${L.OUT_OF_SCRIPT_LINE} ${L.CLARIFY_LINE}`, beatType: "wait", toolCalls: [] };
   }
   const result = await answerFromKnowledgeBase(customerTranscript);
   if (metrics && result.usedLLM) metrics.usedLLM = true;
@@ -2699,7 +2678,7 @@ async function handleGroundedTurn(
     "[beat-controller] UNANSWERED_QUESTION",
     JSON.stringify({ beat: currentBeat.id, q: customerTranscript, in_a_row: state.ungrounded_count })
   );
-  return { text: `${UNKNOWN_QUESTION_LINE} ${CLARIFY_LINE}`, beatType: "wait", toolCalls: [] };
+  return { text: `${L.UNKNOWN_QUESTION_LINE} ${L.CLARIFY_LINE}`, beatType: "wait", toolCalls: [] };
 }
 
 // -----------------------------------------------------------------------------
@@ -2720,6 +2699,16 @@ export async function processControllerTurn(
   dealConfig = DEFAULT_DEAL_CONFIG,
   mockClassification?: ClassificationResult,
   opts: TurnOptions = {}
+): Promise<ControllerDecision> {
+  return inCall(sessionId, dealConfig, () => processControllerTurnIn(sessionId, customerTranscript, dealConfig, mockClassification, opts));
+}
+
+async function processControllerTurnIn(
+  sessionId: string,
+  customerTranscript: string,
+  dealConfig: DealConfig,
+  mockClassification: ClassificationResult | undefined,
+  opts: TurnOptions
 ): Promise<ControllerDecision> {
   let early: string | undefined;
   const onEarly = opts.onEarly
@@ -2790,7 +2779,7 @@ async function combinedTurn(
   if (!state.step0_completed || state.is_stopped) return null;
   const rules = classifyCustomerInputRuleBased(customerTranscript, state.current_beat, ladderOf(state.dealConfig));
   if (!shouldAskAI(customerTranscript, state.current_beat, rules.intent)) return null;
-  const beat = BEATS.find((b) => b.id === state.current_beat);
+  const beat = scriptBeats().find((b) => b.id === state.current_beat);
   const expects = beat?.expects ?? "statement";
   const beatExpects = expects === "consent" ? "yes_no" : expects;
 
@@ -2886,19 +2875,21 @@ async function planReplyOptions(
 /** The recording disclosure the AI must say word for word (TXM's own words, in Max's voice) */
 export const FREE_DISCLOSURE =
   "This transaction is recorded audio and video, and I'm required by law to go over everything with you before you sign any paperwork, to make sure you understand.";
-const saysDisclosure = (t: string) => /recorded audio and video/i.test(t);
+const plain = (t: string) => t.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+/** The recording disclosure was said: the demo's key phrase, or a dealership's disclosure word for word */
+const saysDisclosure = (t: string) => (currentContent().builtIn ? /recorded audio and video/i.test(t) : plain(t).includes(plain(callDisclosure())));
 
 function freeScript(dealConfig: DealConfig) {
-  const beats = BEATS.map((b) => ({ id: b.id, text: formatSpeechText(renderBeatText(b, dealConfig)) }));
+  const beats = scriptBeats().map((b) => ({ id: b.id, text: formatSpeechText(renderBeatText(b, dealConfig)) }));
   const facts = approvedFacts()
     .map((f) => `- ${f.topic}: ${f.answer}`)
     .join("\n");
   const vehicle = `${dealConfig.vehicle_year} ${dealConfig.vehicle_make} ${dealConfig.vehicle_model}`.trim();
-  return { beats, facts, vehicle, disclosure: FREE_DISCLOSURE, ladder: ladderOf(dealConfig) };
+  return { beats, facts, vehicle, disclosure: currentContent().builtIn ? FREE_DISCLOSURE : callDisclosure(), ladder: ladderOf(dealConfig) };
 }
 
 function freeHistory(state: CallState): ChatMessage[] {
-  return (state.free_history ??= [{ role: "assistant", content: STEP_0_GREETING }]);
+  return (state.free_history ??= [{ role: "assistant", content: L.STEP_0_GREETING }]);
 }
 /** Record a turn in the AI's view of the call (also when the script or a reprompt took a turn) */
 function pushFree(state: CallState, customer: string, max: string): void {
@@ -2940,7 +2931,7 @@ async function processFreeTurn(
     return { reason: "declined at the floor: the script closes it", ms: 0, attempts: 0 };
   }
   const script = freeScript(state.dealConfig);
-  const corpus = `${script.beats.map((b) => b.text).join(" ")} ${script.facts} ${script.vehicle} ${STEP_0_GREETING}`;
+  const corpus = `${script.beats.map((b) => b.text).join(" ")} ${script.facts} ${script.vehicle} ${L.STEP_0_GREETING}`;
   const outcome = await runFreeTurn({
     system: buildFreeSystemPrompt(script),
     history: freeHistory(state),
@@ -2969,7 +2960,7 @@ async function processFreeTurn(
       beat = 1;
     } else if (beat >= 1) {
       // Moved on without the disclosure: say it now, word for word, and wait for the okay
-      say = `${say} ${getFullBeatUtterance(BEATS.find((b) => b.id === 1)!, state.dealConfig, state)}`;
+      say = `${say} ${getFullBeatUtterance(scriptBeats().find((b) => b.id === 1)!, state.dealConfig, state)}`;
       state.free_disclosure_given = true;
       beat = 1;
     }
@@ -3158,9 +3149,9 @@ function varyRepeat(decision: ControllerDecision, beatBefore: number, previousTe
   if (key.length < 40 && normLine(previousText) !== key) return;
 
   let text: string;
-  if (decision.textToSpeak.includes(UNKNOWN_QUESTION_LINE)) {
+  if (decision.textToSpeak.includes(L.UNKNOWN_QUESTION_LINE)) {
     const alt = UNKNOWN_QUESTION_VARIANTS[(before - 2) % UNKNOWN_QUESTION_VARIANTS.length];
-    text = decision.textToSpeak.replace(UNKNOWN_QUESTION_LINE, alt);
+    text = decision.textToSpeak.replace(L.UNKNOWN_QUESTION_LINE, alt);
   } else {
     const question = lastQuestionOf(decision.textToSpeak);
     const first = firstSentenceOf(decision.textToSpeak);
@@ -3220,12 +3211,12 @@ async function handleMisses(
   state.miss_count = count;
   if (count < 2) return decision;
 
-  const beat = BEATS.find((b) => b.id === beatBefore)!;
+  const beat = scriptBeats().find((b) => b.id === beatBefore)!;
   const decisionQuestion =
-    beatBefore === 1 ? CONSENT_SHORT_LINE : beatBefore === 22 || beatBefore === 23 ? PRICE_DECISION_LINE : pendingQuestion(state);
+    beatBefore === 1 ? L.CONSENT_SHORT_LINE : beatBefore === 22 || beatBefore === 23 ? L.PRICE_DECISION_LINE : pendingQuestion(state);
 
   if (count === 2 || NO_MOVE_ON_BEATS.has(beatBefore)) {
-    const text = NO_MOVE_ON_BEATS.has(beatBefore) ? decisionQuestion : `${REPHRASE_LINE} ${getBeatCheckInQuestion(beat)}`;
+    const text = NO_MOVE_ON_BEATS.has(beatBefore) ? decisionQuestion : `${L.REPHRASE_LINE} ${getBeatCheckInQuestion(beat)}`;
     state.last_spoken_text = text;
     return { ...decision, textToSpeak: text, beatType: "wait", toolCalls: [] };
   }
@@ -3240,7 +3231,7 @@ async function handleMisses(
   const yesNo = (beat.expects ?? "statement") === "yes_no";
   const next = await runControllerTurn(sessionId, yesNo ? "no" : "okay", dealConfig, { intent: yesNo ? "no" : "agree", topic_beat_ids: [] }, metrics);
   if (yesNo) next.textToSpeak = next.textToSpeak.replace(/^No problem, thanks for letting me know\.\s*/, "");
-  next.textToSpeak = `${MOVE_ON_LINE} ${next.textToSpeak}`;
+  next.textToSpeak = `${L.MOVE_ON_LINE} ${next.textToSpeak}`;
   next.state.last_spoken_text = next.textToSpeak;
   next.intent = "move_on";
   return next;
@@ -3258,7 +3249,7 @@ async function runControllerTurn(
   // Once stopped (script complete, recording objection, hang-up), stay closed: one fixed line,
   // never the handoff line and never back into the script.
   if (state.is_stopped) {
-    const terminalText = state.current_beat >= 25 && !state.verification_deferred ? SCRIPT_COMPLETE_LINE : CLOSING_LINE;
+    const terminalText = state.current_beat >= 25 && !state.verification_deferred ? L.SCRIPT_COMPLETE_LINE : L.CLOSING_LINE;
     return {
       textToSpeak: terminalText,
       beatId: state.current_beat,
@@ -3280,8 +3271,8 @@ async function runControllerTurn(
     const step0Resuming = state.step0_paused;
     state.step0_paused = false;
     if (step0Resuming && isContinuePhrase(step0Norm)) {
-      state.last_spoken_text = STEP_0_CHECKIN_LINE;
-      return { textToSpeak: STEP_0_CHECKIN_LINE, beatId: 0, beatType: "wait", toolCalls: [], state, intent: "step0" };
+      state.last_spoken_text = L.STEP_0_CHECKIN_LINE;
+      return { textToSpeak: L.STEP_0_CHECKIN_LINE, beatId: 0, beatType: "wait", toolCalls: [], state, intent: "step0" };
     }
     // Once the vehicle is disputed, naming another make again ("Are you listening? Audi!") is the same correction
     if (isVehicleCorrection(step0Norm, state.dealConfig) || repeatsVehicleCorrection(step0Norm, state)) {
@@ -3300,7 +3291,7 @@ async function runControllerTurn(
     if (step0Result.moveToBeat1) {
       state.step0_completed = true;
       state.current_beat = 1;
-      const beat1 = BEATS.find((b) => b.id === 1)!;
+      const beat1 = scriptBeats().find((b) => b.id === 1)!;
       const utterance = step0Result.text || getFullBeatUtterance(beat1, state.dealConfig);
       state.last_spoken_text = utterance;
       state.delivered_beats.push(1);
@@ -3370,14 +3361,14 @@ async function runControllerTurn(
 
   switch (intent) {
     case "agree": {
-      const currentBeatObj = BEATS.find((b) => b.id === state.current_beat);
+      const currentBeatObj = scriptBeats().find((b) => b.id === state.current_beat);
       if (currentBeatObj) {
         const expects = currentBeatObj.expects || (currentBeatObj.check_in ? "statement" : "statement");
         const norm = customerTranscript.toLowerCase().replace(/[^a-z0-9 ]/g, " ").trim();
         // A bare "yeah" right after the clarify line answers "continue, or go over that again?", not the
         // beat's own question (S3: "I guess" -> clarify -> "Yeah" skipped "did you drive it?"). Re-ask it.
         // Likewise "okay, continue" after a pause: resume the beat's question, never treat it as the answer
-        const answersClarify = state.last_spoken_text.endsWith(CLARIFY_LINE) && isBareAck(norm);
+        const answersClarify = state.last_spoken_text.endsWith(L.CLARIFY_LINE) && isBareAck(norm);
         const resumesAfterPause = resumingFromPause && isContinuePhrase(norm);
         if ((expects === "yes_no" || expects === "open") && (answersClarify || resumesAfterPause)) {
           textToSpeak = pendingQuestion(state);
@@ -3422,17 +3413,17 @@ async function runControllerTurn(
       }
 
       // Beat 25 (expects "open"): only a real name and address finishes the call
-      if (currentBeatObj?.expects === "open" && state.current_beat === BEATS.length) {
+      if (currentBeatObj?.expects === "open" && state.current_beat === scriptBeats().length) {
         if (!isVerificationAnswer(customerTranscript)) {
           state.verify_misses = (state.verify_misses || 0) + 1;
           if (state.verify_misses >= 2) {
             // Two non-answers: defer to the paperwork and close, without saying anything was finalized
             state.verification_deferred = true;
-            textToSpeak = VERIFY_DEFER_LINE;
+            textToSpeak = L.VERIFY_DEFER_LINE;
             beatType = "stop";
             onScriptComplete(state);
           } else {
-            textToSpeak = VERIFY_REASK_LINE;
+            textToSpeak = L.VERIFY_REASK_LINE;
             beatType = "wait";
           }
           break;
@@ -3453,7 +3444,7 @@ async function runControllerTurn(
         // A removal is not a selection: never confirm it as chosen and never reprice; ask what to keep
         if (EXCLUSION.test(reply)) {
           state.excluded_coverages = namedCoverages(reply);
-          textToSpeak = KEEP_COVERAGES_REASK_LINE;
+          textToSpeak = L.KEEP_COVERAGES_REASK_LINE;
           beatType = "wait";
           break;
         }
@@ -3482,8 +3473,8 @@ async function runControllerTurn(
         /(ready to finalize[^?]*\?|sound fair\?|get you locked in\.)\s*$/i.test(lastAsk) && /dollars/i.test(lastAsk);
       if (state.current_beat === 23 && acceptedPricedFinalize) {
         state.finalize_confirmed = true;
-        const beat24 = BEATS.find((b) => b.id === 24)!;
-        const beat25 = BEATS.find((b) => b.id === 25)!;
+        const beat24 = scriptBeats().find((b) => b.id === 24)!;
+        const beat25 = scriptBeats().find((b) => b.id === 25)!;
         state.delivered_beats.push(24, 25);
         state.current_beat = 25;
         const confirmation = formatSpeechText(renderBeatText(beat24, state.dealConfig, state));
@@ -3494,9 +3485,9 @@ async function runControllerTurn(
       }
 
       // Check if finished all script beats
-      if (nextBeatId > BEATS.length) {
+      if (nextBeatId > scriptBeats().length) {
         state.is_stopped = true;
-        textToSpeak = SCRIPT_COMPLETE_LINE;
+        textToSpeak = L.SCRIPT_COMPLETE_LINE;
         beatType = "stop";
         toolCalls = [{ name: "show_content", args: { item: "deal_summary" } }];
         onScriptComplete(state);
@@ -3509,7 +3500,7 @@ async function runControllerTurn(
       }
       state.current_beat = nextBeatId;
       state.delivered_beats.push(nextBeatId);
-      const nextBeat = BEATS.find((b) => b.id === nextBeatId)!;
+      const nextBeat = scriptBeats().find((b) => b.id === nextBeatId)!;
       const baseUtterance = getFullBeatUtterance(nextBeat, state.dealConfig, state);
       // Skip the bridge when the beat already opens with a connective ("Now, And the first...")
       const opensWithConnective = /^\W*(and|now|but|that['’]?s|so|also)\b/i.test(baseUtterance);
@@ -3548,7 +3539,7 @@ async function runControllerTurn(
           if (!state.delivered_beats.includes(2)) state.delivered_beats.push(2);
           if (!state.delivered_beats.includes(3)) state.delivered_beats.push(3); // Walkaround skipped since not driven
           state.delivered_beats.push(4);
-          const beat4 = BEATS.find((b) => b.id === 4)!;
+          const beat4 = scriptBeats().find((b) => b.id === 4)!;
           const beat4Utterance = getFullBeatUtterance(beat4, state.dealConfig, state);
           textToSpeak = `No problem, thanks for letting me know. ${beat4Utterance}`;
           beatType = beat4.type;
@@ -3562,7 +3553,7 @@ async function runControllerTurn(
         state.no_count_in_a_row = 0;
         state.current_beat = 4;
         state.delivered_beats.push(4);
-        const beat4 = BEATS.find((b) => b.id === 4)!;
+        const beat4 = scriptBeats().find((b) => b.id === 4)!;
         const beat4Utterance = getFullBeatUtterance(beat4, state.dealConfig);
         textToSpeak = `No problem, thanks for letting me know. ${beat4Utterance}`;
         beatType = beat4.type;
@@ -3579,7 +3570,7 @@ async function runControllerTurn(
         state.current_beat = 6;
         if (!state.delivered_beats.includes(5)) state.delivered_beats.push(5);
         state.delivered_beats.push(6);
-        const beat6 = BEATS.find((b) => b.id === 6)!;
+        const beat6 = scriptBeats().find((b) => b.id === 6)!;
         const beat6Utterance = getFullBeatUtterance(beat6, state.dealConfig);
         textToSpeak = `Allow me to go over it really quick to make sure that you understand everything. Also, if you have any questions, please do not hesitate to stop me and ask me. ${beat6Utterance}`;
         beatType = beat6.type;
@@ -3592,7 +3583,7 @@ async function runControllerTurn(
         state.no_count_in_a_row = 0;
         state.current_beat = 6;
         state.delivered_beats.push(6);
-        const beat6 = BEATS.find((b) => b.id === 6)!;
+        const beat6 = scriptBeats().find((b) => b.id === 6)!;
         const beat6Utterance = getFullBeatUtterance(beat6, state.dealConfig);
         textToSpeak = `I completely understand and I respect your time! By law, before you sign, I'm just required to go over what the manufacturer warranty does and doesn't cover so there are no surprises. Allow me to go over it really quick with you. ${beat6Utterance}`;
         beatType = beat6.type;
@@ -3606,15 +3597,15 @@ async function runControllerTurn(
         // the two-no rule) never end the call either. Wait for what the customer wants explained.
         // Only an explicit recording objection or a goodbye ends the call.
         if (state.current_beat === 1) {
-          textToSpeak = TAKE_TIME_LINE;
+          textToSpeak = L.TAKE_TIME_LINE;
           beatType = "wait";
           break;
         }
         // After 2 in a row, respect it and move on to the next beat (there is no human handoff)
         state.no_count_in_a_row = 0;
         const nextBeatId = state.current_beat + 1;
-        if (nextBeatId > BEATS.length) {
-          textToSpeak = `${REPEATED_NO_LINE} ${SCRIPT_COMPLETE_LINE}`;
+        if (nextBeatId > scriptBeats().length) {
+          textToSpeak = `${L.REPEATED_NO_LINE} ${L.SCRIPT_COMPLETE_LINE}`;
           beatType = "stop";
           toolCalls = [{ name: "show_content", args: { item: "deal_summary" } }];
           onScriptComplete(state);
@@ -3622,15 +3613,15 @@ async function runControllerTurn(
         }
         state.current_beat = nextBeatId;
         state.delivered_beats.push(nextBeatId);
-        const nextBeat = BEATS.find((b) => b.id === nextBeatId)!;
-        textToSpeak = `${REPEATED_NO_LINE} ${getFullBeatUtterance(nextBeat, state.dealConfig, state)}`;
+        const nextBeat = scriptBeats().find((b) => b.id === nextBeatId)!;
+        textToSpeak = `${L.REPEATED_NO_LINE} ${getFullBeatUtterance(nextBeat, state.dealConfig, state)}`;
         beatType = nextBeat.type;
         toolCalls = getBeatToolCalls(nextBeatId, ladderOf(state.dealConfig));
       } else {
-        // Speak lead-in line LEAD_IN_NO, then the same beat once more plus its check-in
-        const currentBeat = BEATS.find((b) => b.id === state.current_beat)!;
+        // Speak lead-in line L.LEAD_IN_NO, then the same beat once more plus its check-in
+        const currentBeat = scriptBeats().find((b) => b.id === state.current_beat)!;
         const beatUtterance = getFullBeatUtterance(currentBeat, state.dealConfig);
-        textToSpeak = `${LEAD_IN_NO} ${beatUtterance}`;
+        textToSpeak = `${L.LEAD_IN_NO} ${beatUtterance}`;
         beatType = currentBeat.type;
       }
       break;
@@ -3646,14 +3637,14 @@ async function runControllerTurn(
 
       let responseText = "";
       if (state.delivered_beats.includes(targetId)) {
-        responseText = (targetId === 22 ? priceRecap(state.dealConfig) : BEAT_RECAPS[targetId]) || "As a quick reminder, that coverage is fully included in your protection package.";
+        responseText = recapFor(targetId, state.dealConfig) || "As a quick reminder, that coverage is fully included in your protection package.";
       } else {
-        const beatObj = BEATS.find((b) => b.id === targetId);
+        const beatObj = scriptBeats().find((b) => b.id === targetId);
         if (beatObj) {
           responseText = formatSpeechText(renderBeatText(beatObj, state.dealConfig));
           state.delivered_beats.push(targetId);
         } else {
-          responseText = (state.current_beat === 22 ? priceRecap(state.dealConfig) : BEAT_RECAPS[state.current_beat]) || "As a quick reminder, that coverage is fully included in your package.";
+          responseText = recapFor(state.current_beat, state.dealConfig) || "As a quick reminder, that coverage is fully included in your package.";
         }
       }
 
@@ -3668,7 +3659,7 @@ async function runControllerTurn(
     }
 
     case "question_out_of_script": {
-      const g = await handleGroundedTurn(customerTranscript, state, BEATS.find((b) => b.id === state.current_beat)!, metrics);
+      const g = await handleGroundedTurn(customerTranscript, state, scriptBeats().find((b) => b.id === state.current_beat)!, metrics);
       textToSpeak = g.text;
       beatType = g.beatType;
       toolCalls = g.toolCalls;
@@ -3687,23 +3678,23 @@ async function runControllerTurn(
         state.price_defer_count > 1;
 
       // If customer asks for price a second time OR explicitly demands bottom-line price,
-      // DO NOT repeat DEFER_LINE! Skip educational beats and jump straight to the offer (Beat 22)!
+      // DO NOT repeat L.DEFER_LINE! Skip educational beats and jump straight to the offer (Beat 22)!
       if (isDemandingBottomLine || state.current_beat >= 21) {
         state.current_beat = 22;
         state.delivered_beats.push(22);
-        const beat22 = BEATS.find((b) => b.id === 22)!;
+        const beat22 = scriptBeats().find((b) => b.id === 22)!;
         const offerUtterance = getFullBeatUtterance(beat22, state.dealConfig, state);
         textToSpeak = `I hear you loud and clear—let's skip straight to your exact bottom line numbers. ${offerUtterance}`;
         beatType = "wait";
         toolCalls = getBeatToolCalls(22, ladderOf(state.dealConfig));
       } else {
-        // First price ask before Beat 22: speak DEFER_LINE once, then advance
+        // First price ask before Beat 22: speak L.DEFER_LINE once, then advance
         const nextBeatId = state.current_beat + 1;
         state.current_beat = nextBeatId;
         state.delivered_beats.push(nextBeatId);
-        const nextBeat = BEATS.find((b) => b.id === nextBeatId)!;
+        const nextBeat = scriptBeats().find((b) => b.id === nextBeatId)!;
         const nextUtterance = getFullBeatUtterance(nextBeat, state.dealConfig, state);
-        textToSpeak = `${DEFER_LINE} ${nextUtterance}`;
+        textToSpeak = `${L.DEFER_LINE} ${nextUtterance}`;
         beatType = nextBeat.type;
         toolCalls = getBeatToolCalls(nextBeatId, ladderOf(state.dealConfig));
       }
@@ -3741,7 +3732,7 @@ async function runControllerTurn(
         state.no_count_in_a_row = 0;
         state.current_beat = 24;
         state.delivered_beats.push(24);
-        const beat24 = BEATS.find((b) => b.id === 24)!;
+        const beat24 = scriptBeats().find((b) => b.id === 24)!;
         textToSpeak = getFullBeatUtterance(beat24, state.dealConfig, state);
         beatType = beat24.type;
         toolCalls = getBeatToolCalls(24, ladder);
@@ -3773,8 +3764,8 @@ async function runControllerTurn(
         state.package_declined = true;
         state.current_beat = 25;
         if (!state.delivered_beats.includes(25)) state.delivered_beats.push(25);
-        const beat25 = BEATS.find((b) => b.id === 25)!;
-        textToSpeak = `${DECLINE_LINE} ${getFullBeatUtterance(beat25, state.dealConfig, state)}`;
+        const beat25 = scriptBeats().find((b) => b.id === 25)!;
+        textToSpeak = `${L.DECLINE_LINE} ${getFullBeatUtterance(beat25, state.dealConfig, state)}`;
         beatType = beat25.type;
         toolCalls = [{ name: "dismiss_content", args: {} }];
       }
@@ -3784,15 +3775,15 @@ async function runControllerTurn(
     case "garbled": {
       // Not understood: say so, then ask the pending question again so the customer knows what to
       // answer (test calls looped "Sorry, I didn't catch that." on its own until they hung up)
-      textToSpeak = `${GARBLED_LINE} ${pendingQuestion(state)}`;
+      textToSpeak = `${L.GARBLED_LINE} ${pendingQuestion(state)}`;
       beatType = "wait";
       break;
     }
 
     case "avatar_echo": {
-      // Acoustic self-echo from laptop speakers: do NOT speak GARBLED_LINE (avoids echo loops).
+      // Acoustic self-echo from laptop speakers: do NOT speak L.GARBLED_LINE (avoids echo loops).
       // Simply re-prompt the current beat or check-in without advancing state.current_beat.
-      const currentBeat = BEATS.find((b) => b.id === state.current_beat);
+      const currentBeat = scriptBeats().find((b) => b.id === state.current_beat);
       if (currentBeat) {
         const checkIn = currentBeat.check_in ? formatSpeechText(currentBeat.check_in) : "";
         if (checkIn && checkIn.split(/\s+/).length >= 3) {
@@ -3802,7 +3793,7 @@ async function runControllerTurn(
         }
         beatType = "wait";
       } else {
-        textToSpeak = STEP_0_GREETING;
+        textToSpeak = L.STEP_0_GREETING;
         beatType = "wait";
       }
       break;
@@ -3831,7 +3822,7 @@ async function runControllerTurn(
         beatType = "wait";
         break;
       }
-      const currentBeat = BEATS.find((b) => b.id === state.current_beat)!;
+      const currentBeat = scriptBeats().find((b) => b.id === state.current_beat)!;
       textToSpeak = getFullBeatUtterance(currentBeat, state.dealConfig);
       beatType = currentBeat.type;
       break;
@@ -3839,7 +3830,7 @@ async function runControllerTurn(
 
     case "restart_request": {
       // Do not reset the pointer; offer to repeat only the last beat
-      const currentBeat = BEATS.find((b) => b.id === state.current_beat)!;
+      const currentBeat = scriptBeats().find((b) => b.id === state.current_beat)!;
       textToSpeak = getFullBeatUtterance(currentBeat, state.dealConfig);
       beatType = currentBeat.type;
       break;
@@ -3856,7 +3847,7 @@ async function runControllerTurn(
       }
       // There is no human to hand off to: stay in character, hold the current beat, and let the
       // next turn continue the script normally.
-      textToSpeak = HANDOFF_LINE;
+      textToSpeak = L.HANDOFF_LINE;
       beatType = "wait";
       break;
     }
@@ -3879,7 +3870,7 @@ async function runControllerTurn(
         norm.includes("let me complete") ||
         norm.includes("listen") ||
         norm.includes("hear me");
-      textToSpeak = isInterjection ? LISTENING_LINE : PAUSE_LINE;
+      textToSpeak = isInterjection ? L.LISTENING_LINE : L.PAUSE_LINE;
       state.paused_beat = state.current_beat;
       // At Beat 23 keep the coverage question in front of the customer when they come back
       if (state.current_beat === 23) textToSpeak = `${textToSpeak} ${pendingQuestion(state)}`;
@@ -3890,9 +3881,9 @@ async function runControllerTurn(
 
     case "overwhelmed": {
       // Customer asked to slow down. Reassure and re-prompt current check-in without skipping
-      const currentBeat = BEATS.find((b) => b.id === state.current_beat);
+      const currentBeat = scriptBeats().find((b) => b.id === state.current_beat);
       const checkIn = currentBeat?.check_in ? formatSpeechText(currentBeat.check_in) : "";
-      textToSpeak = checkIn ? `${SLOW_DOWN_LINE} ${checkIn}` : SLOW_DOWN_LINE;
+      textToSpeak = checkIn ? `${L.SLOW_DOWN_LINE} ${checkIn}` : L.SLOW_DOWN_LINE;
       beatType = "wait";
       toolCalls = [];
       break;
@@ -3909,7 +3900,7 @@ async function runControllerTurn(
         norm.includes("hilarious") ||
         norm.includes("crack me up");
 
-      const leadIn = isLaughterOrHumor ? EQ_EXCITEMENT_LINE : COMPLIMENT_LINE;
+      const leadIn = isLaughterOrHumor ? L.EQ_EXCITEMENT_LINE : L.COMPLIMENT_LINE;
       textToSpeak = `${leadIn} ${pendingQuestion(state)}`;
       beatType = "wait";
       break;
@@ -3917,14 +3908,14 @@ async function runControllerTurn(
 
     case "why_asking": {
       // "Why do you keep asking me that": re-ask only the current check-in, not the whole beat
-      const currentBeat = BEATS.find((b) => b.id === state.current_beat)!;
+      const currentBeat = scriptBeats().find((b) => b.id === state.current_beat)!;
       textToSpeak = getBeatCheckInQuestion(currentBeat);
       beatType = "wait";
       break;
     }
 
     case "language_request": {
-      textToSpeak = LANGUAGE_LINE;
+      textToSpeak = L.LANGUAGE_LINE;
       beatType = "wait";
       break;
     }
@@ -3932,7 +3923,7 @@ async function runControllerTurn(
     case "number_clarification": {
       // "You mean seven thousand?": answer from the knowledge base, hold the beat, re-ask its check-in.
       // Never re-recite the beat (that would repeat the number being questioned).
-      const g = await handleGroundedTurn(customerTranscript, state, BEATS.find((b) => b.id === state.current_beat)!, metrics, true);
+      const g = await handleGroundedTurn(customerTranscript, state, scriptBeats().find((b) => b.id === state.current_beat)!, metrics, true);
       textToSpeak = g.text;
       beatType = "wait";
       toolCalls = g.toolCalls;
@@ -3941,7 +3932,7 @@ async function runControllerTurn(
 
     case "classifier_timeout": {
       // The remote classifier was too slow: hold the beat rather than leave dead air or guess
-      textToSpeak = CLARIFY_LINE;
+      textToSpeak = L.CLARIFY_LINE;
       beatType = "wait";
       break;
     }
@@ -3953,7 +3944,7 @@ async function runControllerTurn(
 
       // 1. Retail / Dealership markup objection
       if (norm.includes("markup") || norm.includes("ridiculous") || norm.includes("ripoff") || norm.includes("overpriced")) {
-        textToSpeak = MARKUP_OBJECTION_LINE;
+        textToSpeak = L.MARKUP_OBJECTION_LINE;
         beatType = "wait";
         toolCalls = [];
         break;
@@ -3967,7 +3958,7 @@ async function runControllerTurn(
         norm.includes("cut to the chase") ||
         norm.includes("make it brief");
 
-      if (wantsProgression && state.current_beat < BEATS.length) {
+      if (wantsProgression && state.current_beat < scriptBeats().length) {
         state.is_impatient_flow = true;
         // If customer demands getting to the point during educational wear & tear (Beats 8-15),
         // skip the weather lecture and jump directly to protection options (Beat 16)!
@@ -3977,14 +3968,14 @@ async function runControllerTurn(
           state.current_beat++;
         }
         state.delivered_beats.push(state.current_beat);
-        const nextBeat = BEATS.find((b) => b.id === state.current_beat)!;
+        const nextBeat = scriptBeats().find((b) => b.id === state.current_beat)!;
         const nextUtterance = getFullBeatUtterance(nextBeat, state.dealConfig, state);
         textToSpeak = `Understood, getting straight to it. ${nextUtterance}`;
         beatType = nextBeat.type;
         toolCalls = getBeatToolCalls(state.current_beat, ladderOf(state.dealConfig));
       } else {
         state.is_impatient_flow = true;
-        textToSpeak = EQ_DEESCALATION_LINE;
+        textToSpeak = L.EQ_DEESCALATION_LINE;
         beatType = "wait";
         toolCalls = [];
       }
@@ -3993,9 +3984,9 @@ async function runControllerTurn(
 
     case "customer_anxious": {
       // Reassure anxiety and doubt, zero-pressure psychological safety, re-prompt current beat check-in
-      const currentBeat = BEATS.find((b) => b.id === state.current_beat);
+      const currentBeat = scriptBeats().find((b) => b.id === state.current_beat);
       const checkIn = currentBeat?.check_in ? formatSpeechText(currentBeat.check_in) : "";
-      textToSpeak = checkIn ? `${EQ_REASSURANCE_LINE} ${checkIn}` : EQ_REASSURANCE_LINE;
+      textToSpeak = checkIn ? `${L.EQ_REASSURANCE_LINE} ${checkIn}` : L.EQ_REASSURANCE_LINE;
       beatType = "wait";
       toolCalls = [];
       break;
@@ -4003,16 +3994,16 @@ async function runControllerTurn(
 
     case "identity_question": {
       // Customer asked who Max is. Answer clearly, and re-prompt current beat without advancing!
-      const currentBeat = BEATS.find((b) => b.id === state.current_beat);
+      const currentBeat = scriptBeats().find((b) => b.id === state.current_beat);
       if (currentBeat) {
         const checkInOrUtterance = currentBeat.check_in
-          ? `${IDENTITY_LINE} ${formatSpeechText(currentBeat.check_in)}`
-          : `${IDENTITY_LINE} ${getFullBeatUtterance(currentBeat, state.dealConfig)}`;
+          ? `${L.IDENTITY_LINE} ${formatSpeechText(currentBeat.check_in)}`
+          : `${L.IDENTITY_LINE} ${getFullBeatUtterance(currentBeat, state.dealConfig)}`;
         textToSpeak = checkInOrUtterance;
         beatType = currentBeat.type;
         toolCalls = getBeatToolCalls(state.current_beat, ladderOf(state.dealConfig));
       } else {
-        textToSpeak = IDENTITY_LINE;
+        textToSpeak = L.IDENTITY_LINE;
         beatType = "wait";
       }
       break;
@@ -4025,10 +4016,10 @@ async function runControllerTurn(
       const count = state.confusion_beat === state.current_beat ? (state.confusion_count ?? 0) + 1 : 1;
       state.confusion_beat = state.current_beat;
       state.confusion_count = count;
-      const currentBeat = BEATS.find((b) => b.id === state.current_beat)!;
-      if (count >= 2) textToSpeak = WHICH_PART_LINE;
-      else if (intent === "role_confusion" || state.current_beat === 1) textToSpeak = `${ROLE_EXPLAIN_LINE} ${pendingQuestion(state)}`;
-      else textToSpeak = `${LEAD_IN_NO} ${getFullBeatUtterance(currentBeat, state.dealConfig)}`;
+      const currentBeat = scriptBeats().find((b) => b.id === state.current_beat)!;
+      if (count >= 2) textToSpeak = L.WHICH_PART_LINE;
+      else if (intent === "role_confusion" || state.current_beat === 1) textToSpeak = `${L.ROLE_EXPLAIN_LINE} ${pendingQuestion(state)}`;
+      else textToSpeak = `${L.LEAD_IN_NO} ${getFullBeatUtterance(currentBeat, state.dealConfig)}`;
       beatType = "wait";
       toolCalls = [];
       break;
@@ -4036,21 +4027,21 @@ async function runControllerTurn(
 
     case "acknowledge": {
       // AI-first: a story or remark while Max waits on a question. Thank them, ask it again
-      textToSpeak = `${STEP_0_NEUTRAL_ACK_LINE} ${pendingQuestion(state)}`;
+      textToSpeak = `${L.STEP_0_NEUTRAL_ACK_LINE} ${pendingQuestion(state)}`;
       beatType = "wait";
       toolCalls = [];
       break;
     }
 
     case "early_price_objection": {
-      textToSpeak = `${PRICE_LATER_LINE} ${pendingQuestion(state)}`;
+      textToSpeak = `${L.PRICE_LATER_LINE} ${pendingQuestion(state)}`;
       beatType = "wait";
       toolCalls = [];
       break;
     }
 
     case "pressure_objection": {
-      textToSpeak = `${NO_PRESSURE_LINE} ${pendingQuestion(state)}`;
+      textToSpeak = `${L.NO_PRESSURE_LINE} ${pendingQuestion(state)}`;
       beatType = "wait";
       toolCalls = [];
       break;
@@ -4058,16 +4049,16 @@ async function runControllerTurn(
 
     case "sales_question": {
       // Customer asked if this is a sales call. Reassure directly and re-prompt current beat without advancing!
-      const currentBeat = BEATS.find((b) => b.id === state.current_beat);
+      const currentBeat = scriptBeats().find((b) => b.id === state.current_beat);
       if (currentBeat) {
         const checkInOrUtterance = currentBeat.check_in
-          ? `${SALES_CALL_LINE} ${formatSpeechText(currentBeat.check_in)}`
-          : `${SALES_CALL_LINE} ${getFullBeatUtterance(currentBeat, state.dealConfig)}`;
+          ? `${L.SALES_CALL_LINE} ${formatSpeechText(currentBeat.check_in)}`
+          : `${L.SALES_CALL_LINE} ${getFullBeatUtterance(currentBeat, state.dealConfig)}`;
         textToSpeak = checkInOrUtterance;
         beatType = currentBeat.type;
         toolCalls = getBeatToolCalls(state.current_beat, ladderOf(state.dealConfig));
       } else {
-        textToSpeak = SALES_CALL_LINE;
+        textToSpeak = L.SALES_CALL_LINE;
         beatType = "wait";
       }
       break;
@@ -4075,16 +4066,16 @@ async function runControllerTurn(
 
     case "call_purpose": {
       // Customer asked why they are having this call. Answer clearly and re-prompt current beat without advancing!
-      const currentBeat = BEATS.find((b) => b.id === state.current_beat);
+      const currentBeat = scriptBeats().find((b) => b.id === state.current_beat);
       if (currentBeat) {
         const checkInOrUtterance = currentBeat.check_in
-          ? `${CALL_PURPOSE_LINE} ${formatSpeechText(currentBeat.check_in)}`
-          : `${CALL_PURPOSE_LINE} ${getFullBeatUtterance(currentBeat, state.dealConfig)}`;
+          ? `${L.CALL_PURPOSE_LINE} ${formatSpeechText(currentBeat.check_in)}`
+          : `${L.CALL_PURPOSE_LINE} ${getFullBeatUtterance(currentBeat, state.dealConfig)}`;
         textToSpeak = checkInOrUtterance;
         beatType = currentBeat.type;
         toolCalls = getBeatToolCalls(state.current_beat, ladderOf(state.dealConfig));
       } else {
-        textToSpeak = CALL_PURPOSE_LINE;
+        textToSpeak = L.CALL_PURPOSE_LINE;
         beatType = "wait";
       }
       break;
@@ -4093,10 +4084,10 @@ async function runControllerTurn(
     case "greeting_check": {
       // Customer checked presence mid-call ("hey", "hello", "are you there").
       // Reassure presence and re-prompt current beat WITHOUT advancing the script!
-      const currentBeat = BEATS.find((b) => b.id === state.current_beat);
+      const currentBeat = scriptBeats().find((b) => b.id === state.current_beat);
       if (currentBeat) {
         // Answer, then re-ask the question Max is waiting on, so the next "yeah" answers that question
-        textToSpeak = `${PRESENCE_LINE} ${pendingQuestion(state)}`;
+        textToSpeak = `${L.PRESENCE_LINE} ${pendingQuestion(state)}`;
         beatType = "wait";
         toolCalls = getBeatToolCalls(state.current_beat, ladderOf(state.dealConfig));
       } else {
@@ -4107,14 +4098,14 @@ async function runControllerTurn(
     }
 
     case "ai_question": {
-      // Speak AI_DISCLOSURE_LINE, hold current beat, re-prompt check-in
-      const currentBeat = BEATS.find((b) => b.id === state.current_beat);
+      // Speak L.AI_DISCLOSURE_LINE, hold current beat, re-prompt check-in
+      const currentBeat = scriptBeats().find((b) => b.id === state.current_beat);
       if (currentBeat) {
-        textToSpeak = `${AI_DISCLOSURE_LINE} ${pendingQuestion(state)}`;
+        textToSpeak = `${L.AI_DISCLOSURE_LINE} ${pendingQuestion(state)}`;
         beatType = "wait";
         toolCalls = [];
       } else {
-        textToSpeak = `${AI_DISCLOSURE_LINE} Can you hear and see me alright?`;
+        textToSpeak = `${L.AI_DISCLOSURE_LINE} Can you hear and see me alright?`;
         beatType = "wait";
         toolCalls = [];
       }
@@ -4124,7 +4115,7 @@ async function runControllerTurn(
     case "tech_check_ack": {
       // Customer confirmed tech check / video / audio status.
       // Do NOT advance script beats. Re-prompt current beat question politely.
-      const currentBeat = BEATS.find((b) => b.id === state.current_beat);
+      const currentBeat = scriptBeats().find((b) => b.id === state.current_beat);
       if (currentBeat) {
         const currentUtterance = getFullBeatUtterance(currentBeat, state.dealConfig);
         textToSpeak = `Great! ${currentUtterance}`;
@@ -4137,25 +4128,25 @@ async function runControllerTurn(
     }
 
     case "spouse_objection": {
-      const currentBeat = BEATS.find((b) => b.id === state.current_beat);
+      const currentBeat = scriptBeats().find((b) => b.id === state.current_beat);
       const checkIn = currentBeat?.check_in ? formatSpeechText(currentBeat.check_in) : "";
-      textToSpeak = checkIn ? `${SPOUSE_LINE} ${checkIn}` : SPOUSE_LINE;
+      textToSpeak = checkIn ? `${L.SPOUSE_LINE} ${checkIn}` : L.SPOUSE_LINE;
       beatType = "wait";
       break;
     }
 
     case "insurance_question": {
-      const currentBeat = BEATS.find((b) => b.id === state.current_beat);
+      const currentBeat = scriptBeats().find((b) => b.id === state.current_beat);
       const checkIn = currentBeat?.check_in ? formatSpeechText(currentBeat.check_in) : "";
-      textToSpeak = checkIn ? `${INSURANCE_LINE} ${checkIn}` : INSURANCE_LINE;
+      textToSpeak = checkIn ? `${L.INSURANCE_LINE} ${checkIn}` : L.INSURANCE_LINE;
       beatType = "wait";
       break;
     }
 
     case "cancellation_question": {
-      const currentBeat = BEATS.find((b) => b.id === state.current_beat);
+      const currentBeat = scriptBeats().find((b) => b.id === state.current_beat);
       const checkIn = currentBeat?.check_in ? formatSpeechText(currentBeat.check_in) : "";
-      textToSpeak = checkIn ? `${CANCELLATION_LINE} ${checkIn}` : CANCELLATION_LINE;
+      textToSpeak = checkIn ? `${L.CANCELLATION_LINE} ${checkIn}` : L.CANCELLATION_LINE;
       beatType = "wait";
       break;
     }
@@ -4171,7 +4162,7 @@ async function runControllerTurn(
 
     case "manufacturer_vs_dealer": {
       // Customer asked whether warranty/coverage is from manufacturer or dealership, or if they should buy a new warranty
-      textToSpeak = MANUFACTURER_VS_DEALER_LINE;
+      textToSpeak = L.MANUFACTURER_VS_DEALER_LINE;
       beatType = "wait";
       toolCalls = [];
       break;
@@ -4194,13 +4185,13 @@ async function runControllerTurn(
           break;
         }
         if (norm.includes("think") || norm.includes("kids") || norm.includes("children")) {
-          textToSpeak = THINK_ABOUT_IT_LINE;
+          textToSpeak = L.THINK_ABOUT_IT_LINE;
           beatType = "wait";
           toolCalls = [];
           break;
         }
         if (norm.includes("drop") || norm.includes("drop the tires") || norm.includes("without tires")) {
-          textToSpeak = DROP_COVERAGE_LINE;
+          textToSpeak = L.DROP_COVERAGE_LINE;
           beatType = "wait";
           toolCalls = [];
           break;
@@ -4209,7 +4200,7 @@ async function runControllerTurn(
 
       if (state.current_beat === 17) {
         if (norm.includes("own tire") || norm.includes("don t need tire") || norm.includes("dont need tire") || norm.includes("without tire")) {
-          textToSpeak = TIRE_EXCLUSION_LINE;
+          textToSpeak = L.TIRE_EXCLUSION_LINE;
           beatType = "wait";
           toolCalls = [];
           break;
@@ -4218,7 +4209,7 @@ async function runControllerTurn(
 
       if (state.current_beat === 18) {
         if (norm.includes("own oil") || norm.includes("my own") || norm.includes("don t need maintenance") || norm.includes("dont need maintenance")) {
-          textToSpeak = MAINTENANCE_EXCLUSION_LINE;
+          textToSpeak = L.MAINTENANCE_EXCLUSION_LINE;
           beatType = "wait";
           toolCalls = [];
           break;
@@ -4226,13 +4217,13 @@ async function runControllerTurn(
       }
 
       if (state.current_beat === 19 && (norm.includes("not funny") || norm.includes("isnt funny") || norm.includes("isn t funny"))) {
-        textToSpeak = NOT_FUNNY_LINE;
+        textToSpeak = L.NOT_FUNNY_LINE;
         beatType = "wait";
         toolCalls = [];
         break;
       }
 
-      const g = await handleGroundedTurn(customerTranscript, state, BEATS.find((b) => b.id === state.current_beat)!, metrics);
+      const g = await handleGroundedTurn(customerTranscript, state, scriptBeats().find((b) => b.id === state.current_beat)!, metrics);
       textToSpeak = g.text;
       beatType = g.beatType;
       toolCalls = g.toolCalls;
@@ -4243,7 +4234,7 @@ async function runControllerTurn(
   state.last_spoken_text = textToSpeak;
   const askedNow = lastQuestionOf(textToSpeak);
   // The clarify line is about the reply, not the beat: the beat's own question stays pending
-  if (askedNow && askedNow !== CLARIFY_LINE) {
+  if (askedNow && askedNow !== L.CLARIFY_LINE) {
     state.last_question = askedNow;
     state.last_question_beat = state.current_beat;
   }

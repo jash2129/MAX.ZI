@@ -37,7 +37,7 @@
   {
     "id": 6,
     "type": "wait",
-    "text": "\"Mazda is like any other manufacturer when they build a vehicle they put warranty in it in your case you get two different warranty not one.\" \"The first warranty is five years sixty thousand mile Base limited warranty\" \"The second is ten years hundred thousand mile powertrain which is referring to the engine and the transmission, im sure you and i agree thats a very good complementary warranty from the manufacturer\"",
+    "text": "\"{{vehicle_make}} is like any other manufacturer when they build a vehicle they put warranty in it in your case you get two different warranty not one.\" \"The first warranty is five years sixty thousand mile Base limited warranty\" \"The second is ten years hundred thousand mile powertrain which is referring to the engine and the transmission, im sure you and i agree thats a very good complementary warranty from the manufacturer\"",
     "check_in": "right?",
     "expects": "statement"
   },

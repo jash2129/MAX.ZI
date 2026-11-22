@@ -55,10 +55,17 @@ version goes live. `/calls` returns the version ids the call runs on.
   see `tavus-avatar/src/lib/price-ladder.ts`): Max opens at its first step, comes down one step per
   push, never goes below its last step, and says, shows and checks only its prices. That covers the
   scripted lines, the free-AI guard and the simulator scorecard.
-- **Script and knowledge base: not yet per dealership.** The controller still speaks its built-in
-  beats and facts, so a live script or knowledge base is accepted only if it **is** that built-in
-  content. Anything else refuses new calls for that dealership with a `dealership_refused` log line.
-  Otherwise an approver could approve script v2 while customers still heard v1.
+- **Script, fixed lines, recaps and knowledge base: per dealership**
+  (`tavus-avatar/src/lib/call-content.ts`). The **flow** is the controller's: 25 beats with fixed ids,
+  types and expected answers, Beat 22 says the price through `{{per_day_price}}`, and Beat 1 says the
+  disclosure word for word. The **words** are the dealership's: any beat's wording, the disclosure,
+  any of the named fixed lines (`fixed_lines: { HANDOFF_LINE: "…" }`), and its own facts plus the
+  platform's shared facts.
+  - A beat reworded beyond the deal's details must bring its own recap, so Max never recites the
+    demo's coverage terms.
+  - A live version the controller can't run refuses new calls for that dealership, with a
+    `dealership_refused` log line and the reason. It never runs something nobody approved.
+- Content travels with the call, so a call in progress keeps the version it started with.
 
 **From files** (development): one JSON file per dealership in `config/dealerships/`. An invalid file
 stops start-up.

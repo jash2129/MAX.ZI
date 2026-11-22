@@ -85,6 +85,9 @@ function dealConfigFor(dealership: DealershipConfig, deal: unknown): DealConfig 
     // The controller sets per_day_price from the ladder's opening price when the call starts
     per_day_price: "",
     price_ladder: [...dealership.price_ladder],
+    // Pinned to the call: a call in progress keeps them even if a new version goes live
+    ...(dealership.script ? { script: dealership.script } : {}),
+    ...(dealership.knowledge ? { knowledge: dealership.knowledge } : {}),
   };
 }
 

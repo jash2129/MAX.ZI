@@ -124,3 +124,71 @@ describe("brain on control-plane config", () => {
     expect((await (await post(b, "/calls", { dealership_id: "demo-hyundai", call_id: "pg-9" })).json()).versions.price).toBe(shipped);
   });
 });
+
+describe("dealership script and knowledge base from the control plane", () => {
+  const passed = { calls: 16, hard_failures: 0, completion_rate: 94 };
+
+  async function shipScript(dealership: string, edit: (beats: any[]) => void, extra: { fixed_lines?: Record<string, string>; recaps?: Record<string, string> } = {}) {
+    return asUser(db, owner, async (tx) => {
+      const live = (await tx.query<any>("select beats, disclosure from script_version where dealership_id = $1 and status = 'live'", [dealership])).rows[0];
+      const beats = JSON.parse(JSON.stringify(live.beats));
+      edit(beats);
+      const v = (
+        await tx.query<{ id: string }>(
+          "insert into script_version (dealership_id, beats, disclosure, fixed_lines, recaps) values ($1, $2, $3, $4, $5) returning id",
+          [dealership, JSON.stringify(beats), live.disclosure, JSON.stringify(extra.fixed_lines ?? {}), JSON.stringify(extra.recaps ?? {})]
+        )
+      ).rows[0];
+      await tx.query("update script_version set status = 'in_test' where id = $1", [v.id]);
+      await tx.query("select app.record_test_result('script', $1, $2)", [v.id, JSON.stringify(passed)]);
+      await tx.query("select app.approve_version('script', $1)", [v.id]);
+      return v.id;
+    });
+  }
+
+  const atBeat = (dealership: string, id: string, beat: number) => {
+    const st = getOrCreateCallState(sessionKey(dealership, id));
+    st.step0_completed = true;
+    st.current_beat = beat;
+    st.delivered_beats = Array.from({ length: beat }, (_, i) => i + 1);
+  };
+
+  it("new calls speak the newly approved script; a call in progress keeps the one it started with", async () => {
+    const b = brain();
+    await post(b, "/calls", { dealership_id: "demo-mazda", call_id: "sc-old" });
+    await shipScript(
+      "demo-mazda",
+      (beats) => {
+        beats[9].text = '"At our dealership every part of your {{vehicle_make}} that can break is covered."';
+      },
+      {
+        fixed_lines: { STEP_0_GREETING: "Hello! Can you see and hear me?", HANDOFF_LINE: "I'm the finance manager here, so I can handle all of it for you right now." },
+        recaps: { "10": "To recap, every part that can break is covered." },
+      }
+    );
+    const fresh = await (await post(b, "/calls", { dealership_id: "demo-mazda", call_id: "sc-new" })).json();
+    expect(fresh.text).toBe("Hello! Can you see and hear me?");
+
+    atBeat("demo-mazda", "sc-old", 9);
+    atBeat("demo-mazda", "sc-new", 9);
+    const ask = async (id: string, turn: number, text: string) => finalOf(await post(b, "/turn", { dealership_id: "demo-mazda", call_id: id, turn_id: turn, transcript: text }));
+    expect((await ask("sc-new", 1, "I want to talk to a human")).text).toBe("I'm the finance manager here, so I can handle all of it for you right now.");
+    expect((await ask("sc-old", 1, "I want to talk to a human")).text).not.toContain("handle all of it for you right now");
+    expect((await ask("sc-new", 2, "okay, go on")).text).toContain("At our dealership every part of your Mazda that can break is covered");
+  });
+
+  it("a live script the controller cannot run refuses new calls (and says why in the log)", async () => {
+    await shipScript("demo-hyundai", (beats) => beats.pop());
+    expect((await post(brain(), "/calls", { dealership_id: "demo-hyundai", call_id: "sc-bad" })).status).toBe(404);
+    const good = await asUser(db, owner, async (tx) => (await tx.query<{ id: string }>("select id from script_version where dealership_id = 'demo-hyundai' and status = 'retired' order by version desc limit 1")).rows[0].id);
+    await asUser(db, owner, (tx) => tx.query("select app.rollback_to('script', $1)", [good]));
+    expect((await post(brain(), "/calls", { dealership_id: "demo-hyundai", call_id: "sc-ok" })).status).toBe(200);
+  });
+
+  it("the platform's shared facts reach every dealership's knowledge base", async () => {
+    await db.query("insert into shared_fact (topic, answer, keywords) values ('Are you an AI', 'I''m an AI finance assistant.', '{ai,robot}')");
+    const cfg = await new PostgresConfigSource(db, 0).get("demo-mazda");
+    expect(cfg?.knowledge?.facts.at(-1)).toMatchObject({ topic: "Are you an AI", status: "approved" });
+    await db.query("update shared_fact set active = false");
+  });
+});

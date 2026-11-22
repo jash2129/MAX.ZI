@@ -1,3 +1,5 @@
+import type { CallScript, KnowledgeBase } from "./call-content";
+
 export interface DealConfig {
   dealership_name?: string;
   vehicle_year: string;
@@ -10,6 +12,10 @@ export interface DealConfig {
    * Unset = the demo ladder ($4 -> $3.50 -> $3.25 -> $3). See price-ladder.ts.
    */
   price_ladder?: number[];
+  /** The dealership's approved script (beats, disclosure, fixed lines, recaps). Unset = the demo's. */
+  script?: CallScript;
+  /** The dealership's approved knowledge base, with the platform's shared facts. Unset = the demo's. */
+  knowledge?: KnowledgeBase;
 }
 
 export const HYUNDAI_DEAL_CONFIG: DealConfig = {

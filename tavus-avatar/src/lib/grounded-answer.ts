@@ -9,7 +9,7 @@
  * Pipeline: retrieve -> (optional LLM rewrite from passages only) -> deterministic checks -> answer or handoff.
  * Without an API key it answers with the approved sentences themselves, so it is safe offline.
  */
-import kbData from "./max-knowledge-base.json" with { type: "json" };
+import { kbData } from "./call-content";
 import { UNKNOWN_QUESTION_LINE } from "./max-lines";
 import { extraLLMAllowed } from "./llm-context";
 
@@ -84,12 +84,12 @@ function cleanAnswer(a: string): string {
 
 export function approvedFacts(): Array<{ id: string; topic: string; answer: string; keywords: string[] }> {
   const out: Array<{ id: string; topic: string; answer: string; keywords: string[] }> = [];
-  for (const f of (kbData as { facts: Fact[] }).facts) {
+  for (const f of kbData().facts as unknown as Fact[]) {
     if (f.status !== "script" && f.status !== "approved") continue;
     if (f.speak === false) continue;
     out.push({ id: f.id, topic: f.topic, answer: cleanAnswer(f.answer), keywords: [...(KEYWORDS[f.id] ?? []), ...(f.keywords ?? [])] });
   }
-  for (const n of (kbData as { needs_txm: NeedsEntry[] }).needs_txm) {
+  for (const n of (kbData().needs_txm ?? []) as unknown as NeedsEntry[]) {
     if (n.status === "approved" && n.answer) {
       out.push({ id: `txm:${n.question}`, topic: n.question, answer: n.answer.trim(), keywords: tokens(n.question) });
     }

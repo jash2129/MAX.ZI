@@ -25,9 +25,17 @@ browser ──(Daily room: mic in; avatar video, Max's audio, panel events out)�
   - Done: **per-dealership price ladders.** Every price Max says, shows or checks comes from the
     call's own approved ladder (`tavus-avatar/src/lib/price-ladder.ts`), tested on five different
     ladders with the hard rules checked on every turn. Calls in progress keep their ladder.
-  - Next: beats, fixed lines and knowledge base per call. Until then the brain refuses a live script
-    or knowledge base that differs from the demo's, so an approval never claims something customers
-    don't hear.
+  - Done: **per-dealership script, fixed lines, recaps and knowledge base**
+    (`tavus-avatar/src/lib/call-content.ts`). A new dealership is now configuration only: ladder,
+    wording and facts from its approved versions, with the controller's flow and its hard rules
+    unchanged.
+  - Limits: product-specific fixed lines (tire and wheel, maintenance, markup answers) state the
+    demo's coverage. A dealership with different products must override them, which its approver
+    and the release gate must catch; nothing checks it automatically. Echo detection only knows the
+    built-in lines.
+  - Tenancy phase complete. Next: the admin portal (sign-in, editing drafts, approving with a
+    side-by-side diff, the release gate run on demand, rollback), then call records written by the
+    worker.
   - Open question (yours to decide): a lowball under the floor ("can you do two dollars?") gets the
     floor at once, skipping steps. That's the demo's existing TXM-approved behavior; read strictly,
     the PRD's "one step down per refusal" would forbid it.

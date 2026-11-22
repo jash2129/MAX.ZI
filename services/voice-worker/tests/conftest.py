@@ -30,7 +30,9 @@ def brain_url():
         pytest.skip("brain service not installed (cd services/brain && npm install)")
     port = _free_port()
     env = {k: v for k, v in os.environ.items() if k not in ("XAI_API_KEY", "OPENAI_API_KEY", "MAX_MODE", "MAX_SPEECH", "MAX_UNDERSTANDING", "UPSTASH_REDIS_REST_URL", "KV_REST_API_URL")}
-    env.update(PORT=str(port), BRAIN_TOKEN=BRAIN_TOKEN, MAX_STREAM="on")
+    # Never a real database: no .env.local, no DATABASE_URL (the brain then uses its JSON dealership files)
+    env.pop("DATABASE_URL", None)
+    env.update(PORT=str(port), BRAIN_TOKEN=BRAIN_TOKEN, MAX_STREAM="on", BRAIN_ENV_FILE="off")
     proc = subprocess.Popen(
         [npx, "tsx", "--conditions=react-server", "src/server.ts"],
         cwd=BRAIN_DIR,

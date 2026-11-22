@@ -1,7 +1,5 @@
-import { isDeepStrictEqual } from "node:util";
-
-import beatsData from "../../../tavus-avatar/src/lib/beats.json" with { type: "json" };
-import kbData from "../../../tavus-avatar/src/lib/max-knowledge-base.json" with { type: "json" };
+import { RECAP_BEATS } from "../../../tavus-avatar/src/lib/beat-controller.ts";
+import { validateKnowledge, validateScript, type CallScript, type KnowledgeBase } from "../../../tavus-avatar/src/lib/call-content.ts";
 import type { Db } from "../../control-plane/src/db.ts";
 import { loadLiveConfig, type LiveDealershipConfig } from "../../control-plane/src/live-config.ts";
 
@@ -13,10 +11,10 @@ import { type ConfigSource, type DealershipConfig } from "./tenants.ts";
  * Dealership config from the control plane (Postgres), read as brain_service: the database only ever
  * shows it LIVE, approved versions.
  *
- * The price ladder is per call (the controller reads dealConfig.price_ladder). The beats and the
- * knowledge base are not yet: the controller speaks its built-in ones, so a live script or knowledge
- * base is accepted only if it IS the built-in content; anything else is refused loudly. Otherwise an
- * approver could approve script v2 while customers still heard v1, and the approval would mean nothing.
+ * Everything a call says comes from these versions: the price ladder, the script (beats, disclosure,
+ * fixed lines, recaps) and the knowledge base with the platform's shared facts. A live version the
+ * controller cannot run (a script whose flow differs from the controller's, an invalid ladder) refuses
+ * new calls for that dealership, loudly, instead of running something nobody approved.
  */
 export class PostgresConfigSource implements ConfigSource {
   readonly kind = "postgres" as const;
@@ -49,10 +47,24 @@ export function unsupported(live: LiveDealershipConfig): string | null {
   if (!live.script || !live.price || !live.kb) return "no live script, price ladder or knowledge base";
   const steps: unknown = live.price.steps;
   if (!isValidLadder(steps)) return `live price ladder ${JSON.stringify(steps)} is invalid`;
-  if (!isDeepStrictEqual(live.script.beats, beatsData)) return "live script differs from the script the controller runs";
-  if (!isDeepStrictEqual(live.kb.facts, (kbData as { facts: unknown[] }).facts)) return "live knowledge base differs from the one the controller runs";
-  if (live.facts.some((f) => f.shared)) return "shared platform facts are not used by the controller yet; deactivate them or wait for per-call knowledge";
+  const scriptProblem = validateScript(scriptOf(live), RECAP_BEATS);
+  if (scriptProblem) return `live script: ${scriptProblem}`;
+  const kbProblem = validateKnowledge(knowledgeOf(live));
+  if (kbProblem) return `live knowledge base: ${kbProblem}`;
   return null;
+}
+
+function scriptOf(live: LiveDealershipConfig): CallScript {
+  const s = live.script!;
+  return { beats: s.beats as CallScript["beats"], disclosure: s.disclosure, fixed_lines: s.fixed_lines, recaps: s.recaps };
+}
+
+/** The dealership's facts plus the platform's shared facts (approved, answerable by keyword) */
+function knowledgeOf(live: LiveDealershipConfig): KnowledgeBase {
+  const shared = live.facts
+    .filter((f) => f.shared)
+    .map((f, i) => ({ id: `shared-${i + 1}`, topic: f.topic, answer: f.answer, keywords: f.keywords, status: "approved" }));
+  return { facts: [...((live.kb?.facts ?? []) as KnowledgeBase["facts"]), ...shared] };
 }
 
 function toDealershipConfig(live: LiveDealershipConfig): DealershipConfig {
@@ -65,5 +77,7 @@ function toDealershipConfig(live: LiveDealershipConfig): DealershipConfig {
     price_ladder: live.price!.steps,
     speech_keyterms: live.speech_keyterms,
     versions: live.versions,
+    script: scriptOf(live),
+    knowledge: knowledgeOf(live),
   };
 }

@@ -6,8 +6,9 @@ import { createBrain } from "./app.ts";
 import { DealershipRegistry, type ConfigSource } from "./tenants.ts";
 
 // Local development: .env.local (written by `npm run service-login` in control-plane). Real env vars win.
+// BRAIN_ENV_FILE=off: never (tests, which must not reach a real database).
 const localEnv = new URL("../.env.local", import.meta.url);
-if (process.env.NODE_ENV !== "production" && existsSync(localEnv)) process.loadEnvFile(localEnv);
+if (process.env.NODE_ENV !== "production" && process.env.BRAIN_ENV_FILE !== "off" && existsSync(localEnv)) process.loadEnvFile(localEnv);
 
 // Always-on process (Fly.io / Render / Railway): live calls need it, serverless functions do not fit.
 async function configSource(): Promise<ConfigSource> {

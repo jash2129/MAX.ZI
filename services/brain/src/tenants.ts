@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
+import type { CallScript, KnowledgeBase } from "../../../tavus-avatar/src/lib/call-content.ts";
 import { isValidLadder } from "../../../tavus-avatar/src/lib/price-ladder.ts";
 
 /**
@@ -17,6 +18,9 @@ export interface DealershipConfig {
   default_vehicle: { year: string; make: string; model: string };
   price_ladder: number[];
   speech_keyterms: string[];
+  /** The dealership's approved script and knowledge base (unset: the built-in demo content) */
+  script?: CallScript;
+  knowledge?: KnowledgeBase;
   /** The control plane's live version ids this call runs on (null with file config) */
   versions?: { script: string | null; price: string | null; kb: string | null };
 }
