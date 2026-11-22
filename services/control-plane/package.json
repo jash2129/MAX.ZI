@@ -12,7 +12,8 @@
     "service-login": "tsx src/cli.ts service-login",
     "invite": "tsx src/cli.ts invite",
     "maintain": "tsx src/cli.ts maintain",
-    "forget-call": "tsx src/cli.ts forget-call"
+    "forget-call": "tsx src/cli.ts forget-call",
+    "owner-email": "tsx src/cli.ts owner-email"
   },
   "engines": {
     "node": ">=20"

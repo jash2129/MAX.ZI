@@ -90,6 +90,13 @@ async function main() {
       pooled.password = password;
       writeEnvVar(resolve(target), envVar, pooled.toString());
       console.log(`${exists ? "rotated" : "created"} ${login} (member of ${MEMBER_OF[role].join(", ")}); ${envVar} written to ${resolve(target)}`);
+    } else if (cmd === "owner-email") {
+      // owner-email <new email>: renames the (single) platform owner, e.g. from the seed's placeholder
+      const email = (arg ?? "").trim().toLowerCase();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new Error("usage: owner-email <new email>");
+      const r = await db.query<{ id: string }>("update app_user set email = $1 where is_platform_owner and (select count(*) from app_user where is_platform_owner) = 1 returning id", [email]);
+      if (!r.rows.length) throw new Error("expected exactly one platform owner");
+      console.log(`platform owner is now ${email}`);
     } else if (cmd === "maintain") {
       // closes abandoned calls, deletes expired deals, enforces transcript and recording retention
       console.log(JSON.stringify(await maintain(db, { staleHours: Number(arg) || undefined })));

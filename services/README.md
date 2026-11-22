@@ -14,6 +14,32 @@ The multi-dealership platform from `AI Finance Manager Platform PRD.md`, built n
 browser ──(Daily room: mic in; avatar video, Max's audio, panel events out)── voice worker ──HTTP── brain ── Redis (call state)
 ```
 
+## Production database (Neon project MAX.ZI, branch `production`)
+
+Set up 2026-11-23:
+
+- **Migrations:** 001-009 applied.
+- **Snapshot:** taken before 007-009, as branch `pre-migration-2026-11-23` (kept until 2026-12-06).
+- **Logins:** each is a member of its role only; none is a superuser or can bypass row-level security.
+  - `brain_login` (`brain_service`): its connection string is in `brain/.env.local`.
+  - `portal_login` (`app_user`, `gate_service`) and `auth_login` (`auth_service`, `search_path = auth`):
+    in `portal/.env.prod`, a deploy-only file that nothing loads automatically, so local tests never
+    reach production. That file also holds a production `BETTER_AUTH_SECRET`; `PORTAL_URL` is still to
+    be set once the portal has an address.
+- **Sign-in tables:** Better Auth's tables are in the `auth` schema.
+- **Data:** the two demo dealerships with live v1, and no calls.
+- **Platform owner:** still the placeholder `owner@example.com`. Rename it with
+  `npm run owner-email -- <email>` in control-plane. Its one-time invite link (7 days) is in
+  `control-plane/.env.owner-invite`; make a new one with
+  `npm run invite -- <owner email> .env.owner-invite`.
+- **Verified read-only with each login:**
+  - the brain sees live config, may write calls, and is refused people;
+  - the portal is refused the auth schema, and a stranger sees 0 dealerships;
+  - deleting a call without a signed-in person is refused;
+  - the auth login is refused tenant tables.
+
+All `.env*` files are git-ignored. On a host, set the same variables as secrets.
+
 ## Roadmap status
 
 - **Phase 1, voice pipeline + brain service:** built and tested offline (brain 14 tests, worker 78,
