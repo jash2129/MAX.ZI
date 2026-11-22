@@ -9,7 +9,8 @@
     "typecheck": "tsc --noEmit",
     "migrate": "tsx src/cli.ts migrate",
     "seed-demo": "tsx src/cli.ts seed-demo",
-    "service-login": "tsx src/cli.ts service-login"
+    "service-login": "tsx src/cli.ts service-login",
+    "invite": "tsx src/cli.ts invite"
   },
   "engines": {
     "node": ">=20"

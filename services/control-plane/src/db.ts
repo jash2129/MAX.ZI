@@ -27,8 +27,8 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export async function asUser<T>(db: Db, userId: string, fn: (tx: Queryable) => Promise<T>): Promise<T> {
   if (!UUID.test(userId)) throw new Error("asUser: user id must be a uuid");
   return db.transaction(async (tx) => {
-    await tx.query("set local role app_user");
-    await tx.query("select set_config('app.user_id', $1, true)", [userId]);
+    // One round trip for both (the id is a checked uuid, so it is safe as a literal)
+    await tx.query(`set local role app_user; select set_config('app.user_id', '${userId}', true)`);
     return fn(tx);
   });
 }
@@ -37,16 +37,16 @@ export async function asUser<T>(db: Db, userId: string, fn: (tx: Queryable) => P
 export async function asService<T>(db: Db, role: ServiceRole, fn: (tx: Queryable) => Promise<T>): Promise<T> {
   if (!["brain_service", "worker_service", "gate_service"].includes(role)) throw new Error(`unknown role ${role}`);
   return db.transaction(async (tx) => {
-    await tx.query(`set local role ${role}`);
-    await tx.query("select set_config('app.user_id', '', true)");
+    await tx.query(`set local role ${role}; select set_config('app.user_id', '', true)`);
     return fn(tx);
   });
 }
 
-export const MIGRATIONS_DIR = resolve(import.meta.dirname, "../db/migrations");
+/** db/migrations. Resolved on use: bundlers (the portal) leave import.meta.dirname undefined at load. */
+export const migrationsDir = () => resolve(import.meta.dirname, "../db/migrations");
 
 /** Applies db/migrations/*.sql in name order, each once, each in its own transaction. */
-export async function migrate(db: Db, dir = MIGRATIONS_DIR): Promise<string[]> {
+export async function migrate(db: Db, dir = migrationsDir()): Promise<string[]> {
   await db.exec("create table if not exists schema_migrations (name text primary key, applied_at timestamptz not null default now())");
   const done = new Set((await db.query<{ name: string }>("select name from schema_migrations")).rows.map((r) => r.name));
   const applied: string[] = [];

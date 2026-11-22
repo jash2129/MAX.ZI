@@ -16,6 +16,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import beatsData from "./beats.json" with { type: "json" };
 import kbJson from "./max-knowledge-base.json" with { type: "json" };
 import * as Lines from "./max-lines";
+import { spokenDailyRates } from "./price-ladder";
 
 export interface Beat {
   id: number;
@@ -128,6 +129,11 @@ export function validateScript(s: unknown, recapBeats: number[] = []): string | 
   for (const [k, v] of Object.entries(lines)) {
     if (!(LINE_NAMES as string[]).includes(k)) return `unknown fixed line ${k}`;
     if (typeof v !== "string" || !v.trim()) return `fixed line ${k} is empty`;
+    if (spokenDailyRates(v).length) return `fixed line ${k} states a daily price: prices come from the ladder only`;
+  }
+  for (const [id, v] of Object.entries(script.recaps ?? {})) {
+    if (typeof v !== "string") return `recap ${id} must be text`;
+    if (spokenDailyRates(v).length) return `recap ${id} states a daily price: prices come from the ladder only`;
   }
   // A beat whose coverage text changed must bring its own recap: the built-in recap would recite the
   // demo's coverage terms

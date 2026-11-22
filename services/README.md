@@ -7,6 +7,7 @@ The multi-dealership platform from `AI Finance Manager Platform PRD.md`, built n
 | --- | --- | --- |
 | [`brain/`](brain/README.md) | TypeScript, Node | Decides what Max says. Runs the demo's beat controller, guards, AI layers and knowledge base unchanged, as an HTTP service: `/calls`, `/turn` (streamed), `/commit`, `/reprompt`. |
 | [`voice-worker/`](voice-worker/README.md) | Python, Pipecat 1.16 | Runs live calls: room, noise removal, VAD, Smart Turn, Deepgram STT and TTS, barge-in, LiveAvatar, panels. Calls the brain once per turn. |
+| [`portal/`](portal/README.md) | Next.js, Better Auth | The admin portal: invite-only sign-in with required two-factor for admins, versions with drafts, release gate, side-by-side approval and rollback, people and invites, audit log. Reads and writes as the signed-in person under row-level security. |
 | [`control-plane/`](control-plane/README.md) | Postgres, TypeScript | Tenants, people and roles, versioned script / price / knowledge-base config with approval and a release gate, call records, audit log. Row-level security on every table. |
 
 ```
@@ -33,9 +34,12 @@ browser ──(Daily room: mic in; avatar video, Max's audio, panel events out)�
     demo's coverage. A dealership with different products must override them, which its approver
     and the release gate must catch; nothing checks it automatically. Echo detection only knows the
     built-in lines.
-  - Tenancy phase complete. Next: the admin portal (sign-in, editing drafts, approving with a
-    side-by-side diff, the release gate run on demand, rollback), then call records written by the
-    worker.
+  - Tenancy phase complete.
+- **Phase 3, admin portal:** built (`portal/`). Data layer 19 tests on real Postgres; a 24-step
+  browser end-to-end run passes against a disposable Neon branch. Release gate: a scripted
+  16-journey suite through the real controller (`tavus-avatar/src/lib/release-gate.ts`). Not yet:
+  dashboards, calls list and inspector (needs call records from the worker), agency and dealership
+  creation screens, billing; the AI-persona simulator as a second gate.
   - Open question (yours to decide): a lowball under the floor ("can you do two dollars?") gets the
     floor at once, skipping steps. That's the demo's existing TXM-approved behavior; read strictly,
     the PRD's "one step down per refusal" would forbid it.
