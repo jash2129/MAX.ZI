@@ -1,0 +1,14 @@
+# Docker builds with the repository root as context (services/brain, services/portal): keep secrets and
+# large, unneeded folders out of every image.
+**/.env
+**/.env.*
+**/node_modules
+**/.next
+**/.venv
+**/__pycache__
+.git
+tavus-avatar/logs-heygen
+tavus-pipecat-example
+agent-kiosk-shell
+testing-skill
+docs

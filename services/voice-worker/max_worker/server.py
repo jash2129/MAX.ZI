@@ -68,7 +68,7 @@ class Settings:
             production=os.getenv("ENV", "").lower() == "production",
             max_calls=int(os.getenv("MAX_CALLS_PER_WORKER", "4")),
             daily_api_key=need("DAILY_API_KEY"),
-            brain_url=need("BRAIN_URL"),
+            brain_url=brain_url_from_env(),
             brain_token=os.getenv("BRAIN_TOKEN", "").strip() or None,
             deepgram_api_key=need("DEEPGRAM_API_KEY"),
             heygen_api_key=os.getenv("HEYGEN_API_KEY", "").strip() or None,
@@ -76,6 +76,19 @@ class Settings:
             avatar_sandbox=os.getenv("HEYGEN_SANDBOX", "").lower() in ("1", "true", "yes"),
             tts_voice=os.getenv("TTS_VOICE", "aura-2-arcas-en"),
         )
+
+
+def brain_url_from_env() -> str:
+    """BRAIN_URL, or BRAIN_HOSTPORT (Render passes a private service's internal host:port) over http."""
+    url = os.getenv("BRAIN_URL", "").strip()
+    if url:
+        return url.rstrip("/")
+    hostport = os.getenv("BRAIN_HOSTPORT", "").strip()
+    if hostport:
+        if not re.fullmatch(r"[A-Za-z0-9.\-]+:\d{2,5}", hostport):
+            raise RuntimeError(f"BRAIN_HOSTPORT must be host:port, got {hostport!r}")
+        return f"http://{hostport}"
+    raise RuntimeError("BRAIN_URL (or BRAIN_HOSTPORT) is required")
 
 
 class RoomProvider:

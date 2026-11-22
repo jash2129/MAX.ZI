@@ -8,6 +8,7 @@ import { twoFactor } from "better-auth/plugins/two-factor";
 
 import { authPool, portalDb } from "./db";
 import { userIdForEmail } from "./portal";
+import { portalUrl } from "./url";
 
 /**
  * Sign-in (Better Auth, self-hosted: Neon's managed auth has no two-factor yet).
@@ -36,7 +37,7 @@ export const socialProviders = Object.keys(social) as Array<"google" | "microsof
 
 export const auth = betterAuth({
   appName: "Max portal",
-  baseURL: process.env.PORTAL_URL || "http://localhost:3100",
+  baseURL: portalUrl(),
   secret: process.env.BETTER_AUTH_SECRET,
   database: authPool(),
   emailAndPassword: { enabled: true, minPasswordLength: 12, maxPasswordLength: 128 },

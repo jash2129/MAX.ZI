@@ -1,0 +1,128 @@
+# Render Blueprint for the Max platform (services/). Separate from the repository's root render.yaml,
+# which deploys the old single-dealership demo (tavus-avatar/); creating this Blueprint does not touch it.
+#
+# In Render: New -> Blueprint -> this repository -> Blueprint path: services/render.yaml
+# Step by step: services/DEPLOY-RENDER.md
+#
+# All in Ohio: the same AWS region as the Neon database (us-east-2), so each database round trip is
+# about a millisecond. Auto-deploy is off everywhere: a deploy restarts the services and ends live calls.
+
+services:
+  # The conversation brain. Private: only the voice worker reaches it, over Render's internal network.
+  - type: pserv
+    name: max-brain
+    runtime: docker
+    dockerfilePath: ./services/brain/Dockerfile
+    dockerContext: .
+    region: ohio
+    plan: starter
+    numInstances: 1          # call state is in memory (one instance) unless Upstash Redis is configured
+    autoDeployTrigger: "off"
+    envVars:
+      - key: PORT
+        value: "8787"
+      - key: NODE_ENV
+        value: production
+      - key: MAX_STREAM
+        value: "on"
+      - key: BRAIN_TOKEN
+        generateValue: true  # shared with the voice worker below
+      - key: DATABASE_URL     # brain_login's connection string (services/brain/.env.local)
+        sync: false
+      # Optional AI switches (see the root CLAUDE.md): leave unset for approved lines word for word
+      - key: XAI_API_KEY
+        sync: false
+      - key: GROK_MODEL
+        sync: false
+      - key: MAX_UNDERSTANDING
+        sync: false
+      - key: MAX_SPEECH
+        sync: false
+
+  # Live calls: Daily room, speech in and out, avatar. Public, but every call start needs WORKER_TOKEN.
+  - type: web
+    name: max-voice-worker
+    runtime: docker
+    dockerfilePath: ./services/voice-worker/Dockerfile
+    dockerContext: ./services/voice-worker
+    region: ohio
+    plan: standard           # 2 GB: Silero VAD + Smart Turn models, up to MAX_CALLS_PER_WORKER calls
+    healthCheckPath: /health
+    autoDeployTrigger: "off"
+    envVars:
+      - key: ENV
+        value: production
+      - key: MAX_CALLS_PER_WORKER
+        value: "4"
+      - key: BRAIN_HOSTPORT
+        fromService:
+          type: pserv
+          name: max-brain
+          property: hostport
+      - key: BRAIN_TOKEN
+        fromService:
+          type: pserv
+          name: max-brain
+          envVarKey: BRAIN_TOKEN
+      - key: WORKER_TOKEN
+        generateValue: true  # whatever starts calls (the call page, scripts/start_call.py) sends it
+      - key: DAILY_API_KEY
+        sync: false
+      - key: DEEPGRAM_API_KEY
+        sync: false
+      - key: HEYGEN_API_KEY
+        sync: false
+      - key: HEYGEN_AVATAR_ID
+        sync: false
+      - key: TTS_VOICE
+        value: aura-2-arcas-en
+
+  # The admin portal. Sign-in and invite links use the address Render gives it (RENDER_EXTERNAL_URL)
+  # unless PORTAL_URL is set (a custom domain).
+  - type: web
+    name: max-portal
+    runtime: docker
+    dockerfilePath: ./services/portal/Dockerfile
+    dockerContext: .
+    region: ohio
+    plan: starter
+    healthCheckPath: /sign-in
+    autoDeployTrigger: "off"
+    envVars:
+      # The three values in services/portal/.env.prod
+      - key: PORTAL_DATABASE_URL
+        sync: false
+      - key: AUTH_DATABASE_URL
+        sync: false
+      - key: BETTER_AUTH_SECRET
+        sync: false
+      - key: PORTAL_URL
+        sync: false
+      # Optional: Google / Microsoft sign-in for invited emails
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: MICROSOFT_CLIENT_ID
+        sync: false
+      - key: MICROSOFT_CLIENT_SECRET
+        sync: false
+
+  # Hourly maintenance: abandoned calls closed, expired deals deleted, transcript retention enforced
+  - type: cron
+    name: max-maintain
+    runtime: node
+    rootDir: services/control-plane
+    region: ohio
+    plan: starter
+    schedule: "15 * * * *"
+    buildCommand: npm ci --no-audit --no-fund
+    startCommand: npm run maintain
+    autoDeployTrigger: "off"
+    envVars:
+      - key: NODE_VERSION
+        value: "24"
+      # The database OWNER's direct (unpooled) connection: maintenance works across all dealerships.
+      # services/control-plane/.env.local, DATABASE_URL_UNPOOLED.
+      - key: DATABASE_URL_UNPOOLED
+        sync: false

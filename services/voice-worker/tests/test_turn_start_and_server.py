@@ -166,3 +166,17 @@ def test_start_call_passes_a_deal_id_and_rejects_a_malformed_one():
         assert client.post("/calls", json={"dealership_id": "demo-mazda", "deal_id": deal}, headers=ok).status_code == 200
         assert client.post("/calls", json={"dealership_id": "demo-mazda", "deal_id": "../../etc"}, headers=ok).status_code == 400
     assert started[0].deal_id == deal
+
+
+def test_brain_url_from_render_hostport(monkeypatch):
+    from max_worker.server import brain_url_from_env
+
+    monkeypatch.delenv("BRAIN_URL", raising=False)
+    monkeypatch.setenv("BRAIN_HOSTPORT", "max-brain-a1b2:8787")
+    assert brain_url_from_env() == "http://max-brain-a1b2:8787"
+    monkeypatch.setenv("BRAIN_URL", "http://localhost:8787/")
+    assert brain_url_from_env() == "http://localhost:8787"
+    monkeypatch.delenv("BRAIN_URL")
+    monkeypatch.setenv("BRAIN_HOSTPORT", "http://evil/x")
+    with pytest.raises(RuntimeError):
+        brain_url_from_env()

@@ -33,6 +33,7 @@ import {
   type Kind,
 } from "@/server/portal";
 import { requirePerson } from "@/server/session";
+import { portalUrl, secureCookies } from "@/server/url";
 
 /**
  * Server actions. Forms post here; errors come back as ?error=... on the page (no client JS needed).
@@ -254,11 +255,11 @@ export async function deleteDraftAction(form: FormData) {
 
 /** The invite link is shown once, from a short-lived cookie, never in a URL (history, logs) */
 async function flashInvite(email: string, token: string) {
-  const base = process.env.PORTAL_URL || "http://localhost:3100";
+  const base = portalUrl();
   (await cookies()).set("flash_invite", JSON.stringify({ email, link: `${base}/invite/${token}` }), {
     httpOnly: true,
     sameSite: "strict",
-    secure: base.startsWith("https"),
+    secure: secureCookies(),
     maxAge: 120,
     path: "/",
   });
@@ -301,7 +302,7 @@ export async function setWebhookAction(form: FormData) {
   await act(`/d/${encodeURIComponent(d)}`, async () => {
     const secret = await setWebhook(portalDb(), p.id, d, str(form, "url"));
     // shown once, like an invite link
-    (await cookies()).set("flash_webhook_secret", secret, { httpOnly: true, sameSite: "strict", secure: (process.env.PORTAL_URL || "").startsWith("https"), maxAge: 120, path: "/" });
+    (await cookies()).set("flash_webhook_secret", secret, { httpOnly: true, sameSite: "strict", secure: secureCookies(), maxAge: 120, path: "/" });
     return `/d/${encodeURIComponent(d)}#webhook`;
   });
 }
@@ -331,7 +332,7 @@ export async function createApiKeyAction(form: FormData) {
   const d = str(form, "dealership");
   await act(`/d/${encodeURIComponent(d)}`, async () => {
     const key = await createApiKey(portalDb(), p.id, d, str(form, "label"));
-    (await cookies()).set("flash_api_key", key, { httpOnly: true, sameSite: "strict", secure: (process.env.PORTAL_URL || "").startsWith("https"), maxAge: 120, path: "/" });
+    (await cookies()).set("flash_api_key", key, { httpOnly: true, sameSite: "strict", secure: secureCookies(), maxAge: 120, path: "/" });
     return `/d/${encodeURIComponent(d)}#api-keys`;
   });
 }
