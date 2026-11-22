@@ -182,14 +182,21 @@ async def run_call(cfg: CallConfig) -> None:
         async def _on_joined(_transport, _participant):
             await brain_proc.say_opening(str(opening.get("text", "")), int(opening.get("beat", 0)))
 
+        customer_left = False
+
         @transport.event_handler("on_participant_left")
         async def _on_left(_transport, _participant, reason):
+            nonlocal customer_left
+            customer_left = True
             log.info(f"customer left ({reason})")
             await task.cancel()
 
+        end_reason = "worker_error"
         try:
             await PipelineRunner(handle_sigint=False).run(task)
+            end_reason = brain_proc.ended_reason or ("customer_left" if customer_left else "ended")
         finally:
-            await brain.end()
+            # The brain writes the call's outcome, review, usage and webhook from here
+            await brain.end(brain_proc.ended_reason or ("customer_left" if customer_left else end_reason))
             await brain.aclose()
 

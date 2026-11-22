@@ -14,6 +14,7 @@ import { streamingEnabled } from "../../../tavus-avatar/src/lib/llm-stream.ts";
 import { loadSession, saveSession, sharedStoreEnabled } from "../../../tavus-avatar/src/lib/session-store.ts";
 
 import { toPanelEvents } from "./panels.ts";
+import { noRecorder, type CallRecorder } from "./recorder.ts";
 import { ID_PATTERN, type ConfigSource, type DealershipConfig } from "./tenants.ts";
 
 /**
@@ -35,6 +36,8 @@ export interface BrainOptions {
   token?: string;
   production?: boolean;
   now?: () => number;
+  /** Call records (PgCallRecorder with the control plane; none with file config) */
+  recorder?: CallRecorder;
 }
 
 /** Said when the controller itself throws: never silence (PRD rule 8). */
@@ -106,8 +109,20 @@ function finalBody(decision: ControllerDecision, timing: Json) {
   };
 }
 
+/** Stage timings from the voice worker: numbers only, a few known keys (never free text in records) */
+function cleanTimings(raw: unknown): Record<string, number | null> {
+  const out: Record<string, number | null> = {};
+  if (!raw || typeof raw !== "object") return out;
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (!/^[a-z0-9_]{1,40}$/.test(k) || Object.keys(out).length >= 20) continue;
+    if (v === null || (typeof v === "number" && Number.isFinite(v))) out[k] = v as number | null;
+  }
+  return out;
+}
+
 export function createBrain(opts: BrainOptions) {
   const now = opts.now ?? Date.now;
+  const recorder = opts.recorder ?? noRecorder;
 
   function authorize(req: Request): void {
     if (!opts.token) {
@@ -161,13 +176,14 @@ export function createBrain(opts: BrainOptions) {
       const resumed = activeStates.has(key);
       const state = getOrCreateCallState(key, dealConfigFor(dealership, body.deal));
       await saveSession(key);
+      if (!resumed) recorder.started(key, dealership.id, dealership.versions ?? null);
       return json({ text: state.last_spoken_text, beat: state.current_beat, panels: [], resumed, max_display_name: dealership.max_display_name, speech_keyterms: dealership.speech_keyterms, versions: dealership.versions ?? null });
     });
   }
 
   async function turn(body: Json): Promise<Response> {
     const routeStart = now();
-    const { key } = keyOf(body);
+    const { key, dealershipId } = keyOf(body);
     const transcript = typeof body.transcript === "string" ? body.transcript.slice(0, 2000) : "";
     const turnId = Number(body.turn_id);
     if (!Number.isInteger(turnId) || turnId < 1) throw new HttpError(400, "turn_id must be a positive integer");
@@ -205,7 +221,21 @@ export function createBrain(opts: BrainOptions) {
                   : undefined,
               });
               await saveSession(key);
-              send(finalBody(decision, { early_ms: earlyAt, final_ms: now() - routeStart }));
+              const timing = { early_ms: earlyAt, final_ms: now() - routeStart };
+              const reply = finalBody(decision, timing);
+              send(reply);
+              const m = decision.metrics;
+              recorder.turn(key, dealershipId, {
+                turnId,
+                customer: transcript,
+                max: decision.textToSpeak,
+                beatBefore: m?.beatBefore ?? decision.beatId,
+                beatAfter: decision.beatId,
+                understanding: `${m?.understanding ?? (m?.usedLLM ? "ai" : "rules")}:${decision.intent}`,
+                wordingSource: m?.mode === "free" ? "free-ai" : m?.speech === "ai" ? "ai" : "approved-line",
+                panels: reply.panels,
+                timings: { brain_early_ms: timing.early_ms, brain_final_ms: timing.final_ms },
+              });
             } catch (err) {
               console.error(JSON.stringify({ event: "brain_turn_failed", call: key, turnId, error: String(err) }));
               const s = activeStates.get(key);
@@ -237,6 +267,7 @@ export function createBrain(opts: BrainOptions) {
       requireStarted(key);
       const result = commitTurn(key, turnId, Boolean(body.heard), fraction);
       await saveSession(key);
+      recorder.committed(key, turnId, Boolean(body.heard), fraction, cleanTimings(body.timings));
       return json({ rolled_back: result.rolledBack, reason: result.reason ?? null });
     });
   }
@@ -254,8 +285,21 @@ export function createBrain(opts: BrainOptions) {
   }
 
   async function end(body: Json): Promise<Response> {
-    const { key } = keyOf(body);
+    const { key, dealershipId } = keyOf(body);
+    const reason = typeof body.reason === "string" && /^[a-z_]{1,40}$/.test(body.reason) ? body.reason : "ended";
     return withCallLock(key, async () => {
+      await loadSession(key);
+      const state = activeStates.get(key);
+      if (state) {
+        recorder.ended(key, dealershipId, {
+          reason,
+          dealConfig: state.dealConfig,
+          furthestBeat: state.current_beat,
+          concessionStage: state.concession_stage,
+          declined: Boolean(state.package_declined),
+          finalized: !state.package_declined && (Boolean(state.finalize_confirmed) || state.delivered_beats.includes(24)),
+        });
+      }
       // Redis copies expire on their own (2 h); this frees this process's memory now
       resetCallState(key);
       return json({ ok: true });

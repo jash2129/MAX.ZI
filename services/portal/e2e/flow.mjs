@@ -162,7 +162,46 @@ try {
   await page.click("button[type=submit]");
   await expectText(page, "Dealerships", "signed in with the right code");
 
-  // 8. attacks on sign-up without an invite (straight at the auth API, as an attacker would)
+  // 8. call records: a call through the brain on the same branch, then the portal shows it
+  if (process.env.E2E_BRAIN_URL) {
+    const brainUrl = process.env.E2E_BRAIN_URL;
+    const auth = { "Content-Type": "application/json", Authorization: `Bearer ${process.env.E2E_BRAIN_TOKEN ?? ""}` };
+    const call = `e2e-${Date.now().toString(36)}`;
+    const say = (beat) => (beat === 0 ? "Yes, I can hear and see you, it's been great." : beat === 23 ? "The warranty and the tires." : beat >= 25 ? "John Smith, 12 Main Street, Dallas." : "Yes, that makes sense.");
+    const started = await (await fetch(`${brainUrl}/calls`, { method: "POST", headers: auth, body: JSON.stringify({ dealership_id: "demo-mazda", call_id: call }) })).json();
+    if (!started.versions?.price) fail("brain on the branch", JSON.stringify(started).slice(0, 200));
+    let beat = 0;
+    let turns = 0;
+    for (let t = 1; t <= 60; t++) {
+      const lines = (await (await fetch(`${brainUrl}/turn`, { method: "POST", headers: auth, body: JSON.stringify({ dealership_id: "demo-mazda", call_id: call, turn_id: t, transcript: say(beat) }) })).text()).split("\n").filter(Boolean);
+      const f = JSON.parse(lines.at(-1));
+      await fetch(`${brainUrl}/commit`, { method: "POST", headers: auth, body: JSON.stringify({ dealership_id: "demo-mazda", call_id: call, turn_id: t, heard: true, fraction_heard: 1, timings: { first_audio_ms: 700 } }) });
+      beat = f.beat;
+      turns = t;
+      if (f.is_complete) break;
+    }
+    await fetch(`${brainUrl}/end`, { method: "POST", headers: auth, body: JSON.stringify({ dealership_id: "demo-mazda", call_id: call, reason: "script_complete" }) });
+    step(`a ${turns}-turn call played through the brain on the branch`);
+    // the records are written off the call path (far from the database: a few round trips a turn, so
+    // up to a couple of minutes for a whole call; next to it: well under a second)
+    const callsPage = `${base}/d/demo-mazda/calls`;
+    const until = Date.now() + 3 * WAIT;
+    for (;;) {
+      await page.goto(callsPage);
+      if ((await page.locator("body").innerText()).includes("Accepted, $4.00/day")) break;
+      if (Date.now() > until) fail("calls list", "the call never appeared with its outcome");
+      await page.waitForTimeout(3000);
+    }
+    step("the calls list shows the call, accepted at $4.00/day, checks passed");
+    await Promise.all([page.waitForURL(/\/calls\/.+/, { timeout: WAIT }), page.locator("table a").first().click()]);
+    await expectText(page, "Passed: Recording disclosure said word for word", "the call detail shows the compliance checks");
+    await expectText(page, say(0), "the call detail shows the transcript");
+    await expectText(page, "700 ms", "the call detail shows the stage timings");
+    await page.goto(`${base}/d/demo-mazda`);
+    await expectText(page, "Took the package", "the dashboard shows the call");
+  }
+
+  // 9. attacks on sign-up without an invite (straight at the auth API, as an attacker would)
   for (const [email, label] of [
     ["e2e.viewer@example.com", "an invited person's email, without their link"],
     ["intruder@example.com", "an unknown email"],

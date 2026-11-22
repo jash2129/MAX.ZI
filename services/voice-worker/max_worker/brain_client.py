@@ -76,15 +76,19 @@ class BrainClient:
         except httpx.HTTPError as e:
             raise BrainError(f"/turn: {e!r}") from e
 
-    async def commit(self, turn_id: int, heard: bool, fraction_heard: float) -> dict[str, Any]:
-        return await self._post("/commit", {"turn_id": turn_id, "heard": heard, "fraction_heard": round(fraction_heard, 3)})
+    async def commit(self, turn_id: int, heard: bool, fraction_heard: float, timings: dict[str, int | None] | None = None) -> dict[str, Any]:
+        body: dict[str, Any] = {"turn_id": turn_id, "heard": heard, "fraction_heard": round(fraction_heard, 3)}
+        if timings:
+            body["timings"] = timings  # stage timings for the call record (numbers only)
+        return await self._post("/commit", body)
 
     async def reprompt(self, kind: str) -> str:
         return str((await self._post("/reprompt", {"kind": kind})).get("text", ""))
 
-    async def end(self) -> None:
+    async def end(self, reason: str = "ended") -> None:
+        """Ends the call in the brain, which then writes its outcome, review and webhook."""
         try:
-            await self._post("/end", {})
+            await self._post("/end", {"reason": reason})
         except BrainError:
             pass  # state expires in Redis anyway
 

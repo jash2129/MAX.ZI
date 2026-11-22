@@ -1,10 +1,10 @@
 import { cookies } from "next/headers";
 import Link from "next/link";
 
-import { addPersonAction, newDraftAction, reinviteAction, removePersonAction } from "@/app/actions";
+import { addPersonAction, newDraftAction, reinviteAction, removePersonAction, removeWebhookAction, setWebhookAction } from "@/app/actions";
 import { KIND_LABEL, Notices, Shell, Status } from "@/components/chrome";
 import { portalDb } from "@/server/db";
-import { KINDS, auditLog, getDealership, listPeople, listVersions, permissions } from "@/server/portal";
+import { KINDS, auditLog, dashboard, getDealership, getWebhook, listPeople, listVersions, permissions } from "@/server/portal";
 import { requirePerson } from "@/server/session";
 
 export const dynamic = "force-dynamic";
@@ -18,12 +18,19 @@ export default async function DealershipPage({ params, searchParams }: { params:
   const db = portalDb();
   const [dealership, can] = await Promise.all([getDealership(db, person.id, id), permissions(db, person.id, id)]);
   const versions = await Promise.all(KINDS.map((k) => listVersions(db, person.id, id, k)));
-  const [people, audit] = await Promise.all([listPeople(db, person.id, id), auditLog(db, person.id, id, 30)]);
+  const [people, audit, stats, webhook] = await Promise.all([
+    listPeople(db, person.id, id),
+    auditLog(db, person.id, id, 30),
+    dashboard(db, person.id, id, 30),
+    can.edit ? getWebhook(db, person.id, id) : Promise.resolve(null),
+  ]);
 
-  // A just-created invite link, shown once (set by addPersonAction, never in the URL)
+  // A just-created invite link or webhook secret, shown once (set by an action, never in the URL)
   const jar = await cookies();
   const flash = jar.get("flash_invite")?.value;
   const invite = flash ? (JSON.parse(flash) as { email: string; link: string }) : null;
+  const newSecret = jar.get("flash_webhook_secret")?.value ?? null;
+  const show = (v: number | null, unit = "%") => (v === null ? "n/a" : `${v}${unit}`);
 
   return (
     <Shell person={person}>
@@ -35,6 +42,39 @@ export default async function DealershipPage({ params, searchParams }: { params:
         {dealership.id} · Max is called {dealership.max_display_name} · {can.approve ? "you can approve" : can.edit ? "you can edit" : "view only"}
       </p>
       <Notices search={search} ok={{ approved: "Approved: the new version is live for new calls. Calls in progress keep theirs.", rolledback: "Rolled back: the earlier version is live for new calls." }} />
+
+      <h2>Last 30 days</h2>
+      <div className="grid2">
+        <div className="panel">
+          <div className="muted">Calls</div>
+          <div style={{ fontSize: 26, fontWeight: 650 }}>{stats.calls}</div>
+          <Link href={`/d/${id}/calls`}>See all calls</Link>
+        </div>
+        <div className="panel">
+          <div className="muted">Completed the script · reached the price</div>
+          <div style={{ fontSize: 22, fontWeight: 650 }}>
+            {show(stats.completed_rate)} · {show(stats.price_reached_rate)}
+          </div>
+          <div className="muted">PRD targets: 80% and 90%</div>
+        </div>
+        <div className="panel">
+          <div className="muted">Took the package · average daily rate</div>
+          <div style={{ fontSize: 22, fontWeight: 650 }}>
+            {show(stats.take_rate)} · {stats.avg_final_rate === null ? "n/a" : `$${stats.avg_final_rate.toFixed(2)}`}
+          </div>
+        </div>
+        <div className="panel">
+          <div className="muted">Max starts speaking after (median · 90th percentile)</div>
+          <div style={{ fontSize: 22, fontWeight: 650 }}>
+            {show(stats.first_audio_ms.median, " ms")} · {show(stats.first_audio_ms.p90, " ms")}
+          </div>
+          <div className="muted">From the end of the customer&apos;s turn, over {stats.first_audio_ms.turns} turns</div>
+        </div>
+        <div className={`panel ${stats.compliance_failures ? "notice error" : ""}`}>
+          <div className="muted">Calls failing a compliance check</div>
+          <div style={{ fontSize: 26, fontWeight: 650 }}>{stats.compliance_failures}</div>
+        </div>
+      </div>
 
       {KINDS.map((kind, i) => (
         <section key={kind}>
@@ -161,6 +201,40 @@ export default async function DealershipPage({ params, searchParams }: { params:
             </button>
           </p>
         </form>
+      )}
+
+      {can.edit && (
+        <>
+          <h2 id="webhook">Webhook</h2>
+          {newSecret && (
+            <div className="notice ok" role="status">
+              Signing secret (copy it into your system now, it is not shown again). Each delivery carries{" "}
+              <code>X-Max-Signature: t=&lt;unix time&gt;,v1=&lt;hex&gt;</code>, where v1 is the HMAC-SHA256 of <code>&lt;t&gt;.&lt;body&gt;</code> with this secret:
+              <div className="mono" style={{ wordBreak: "break-all", marginTop: 6 }}>
+                {newSecret}
+              </div>
+            </div>
+          )}
+          <div className="panel">
+            <p className="muted">
+              After every call, a summary (outcome, daily rate, compliance checks, score; no transcript) is sent here.
+              {webhook ? ` Now: ${webhook.url}` : " Not set."}
+            </p>
+            <form action={setWebhookAction} className="row">
+              <input type="hidden" name="dealership" value={id} />
+              <input name="url" type="url" placeholder="https://your-crm.example.com/max-calls" defaultValue={webhook?.url ?? ""} style={{ flex: "1 1 280px" }} required />
+              <button type="submit">{webhook ? "Save and make a new secret" : "Save"}</button>
+            </form>
+            {webhook && (
+              <form action={removeWebhookAction} style={{ marginTop: 8 }}>
+                <input type="hidden" name="dealership" value={id} />
+                <button className="danger" type="submit">
+                  Remove webhook
+                </button>
+              </form>
+            )}
+          </div>
+        </>
       )}
 
       <h2>Recent changes</h2>

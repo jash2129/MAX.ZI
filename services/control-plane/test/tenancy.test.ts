@@ -257,10 +257,15 @@ describe("version lifecycle", () => {
 });
 
 describe("services", () => {
-  it("the brain sees live config only, never drafts or call records", async () => {
+  it("the brain sees live config only (never drafts), writes call records, and never sees people", async () => {
     const drafts = await asService(db, "brain_service", async (tx) => (await tx.query<any>("select status from script_version")).rows);
     expect(drafts.every((r) => r.status === "live")).toBe(true);
-    await expect(asService(db, "brain_service", (tx) => tx.query("select * from call"))).rejects.toThrow(/permission denied/);
+    // migration 008: the brain records calls
+    await asService(db, "brain_service", (tx) => tx.query("select id from call limit 1"));
+    for (const table of ["app_user", "membership", "audit_log", "invite"]) {
+      await expect(asService(db, "brain_service", (tx) => tx.query(`select * from ${table}`)), table).rejects.toThrow(/permission denied/);
+    }
+    await expect(asService(db, "brain_service", (tx) => tx.query("update dealership set name = 'x'"))).rejects.toThrow(/permission denied/);
   });
 
   it("loadLiveConfig returns a dealership's live versions and their ids", async () => {

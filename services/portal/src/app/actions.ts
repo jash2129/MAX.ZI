@@ -18,10 +18,12 @@ import {
   redeemInvite,
   reinvite,
   removePerson,
+  removeWebhook,
   rollbackTo,
   runGate,
   saveDraft,
   setStatus,
+  setWebhook,
   userIdForEmail,
   type DealershipRole,
   type Kind,
@@ -283,4 +285,28 @@ export async function removePersonAction(form: FormData) {
   const p = await requirePerson();
   const d = str(form, "dealership");
   await act(`/d/${encodeURIComponent(d)}`, async () => removePerson(portalDb(), p.id, d, str(form, "person"), str(form, "role") as DealershipRole));
+}
+
+// ---------------------------------------------------------------------------------------------------
+// Webhook
+// ---------------------------------------------------------------------------------------------------
+
+export async function setWebhookAction(form: FormData) {
+  const p = await requirePerson();
+  const d = str(form, "dealership");
+  await act(`/d/${encodeURIComponent(d)}`, async () => {
+    const secret = await setWebhook(portalDb(), p.id, d, str(form, "url"));
+    // shown once, like an invite link
+    (await cookies()).set("flash_webhook_secret", secret, { httpOnly: true, sameSite: "strict", secure: (process.env.PORTAL_URL || "").startsWith("https"), maxAge: 120, path: "/" });
+    return `/d/${encodeURIComponent(d)}#webhook`;
+  });
+}
+
+export async function removeWebhookAction(form: FormData) {
+  const p = await requirePerson();
+  const d = str(form, "dealership");
+  await act(`/d/${encodeURIComponent(d)}`, async () => {
+    await removeWebhook(portalDb(), p.id, d);
+    return `/d/${encodeURIComponent(d)}#webhook`;
+  });
 }

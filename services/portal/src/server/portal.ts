@@ -409,3 +409,144 @@ export async function redeemInvite(db: Db, token: string): Promise<string | null
   if (!/^[0-9a-f]{64}$/.test(token)) return null;
   return (await db.query<{ e: string | null }>("select app.redeem_invite($1) as e", [token])).rows[0]?.e ?? null;
 }
+
+// ---------------------------------------------------------------------------------------------------
+// Calls, dashboard and webhook (records are written by the brain; see brain/src/recorder.ts)
+// ---------------------------------------------------------------------------------------------------
+
+export interface CallRow {
+  id: string;
+  started_at: string;
+  ended_at: string | null;
+  end_reason: string | null;
+  furthest_beat: number | null;
+  final_rate: string | null;
+  declined: boolean | null;
+  turns_count: number;
+  score: string | null;
+  compliance_ok: boolean | null;
+  webhook: "delivered" | "failed" | "none";
+}
+
+export async function listCalls(db: Db, userId: string, dealershipId: string, limit = 50): Promise<CallRow[]> {
+  return run(db, userId, async (tx) => {
+    const r = await tx.query<any>(
+      `select c.id, c.started_at, c.ended_at, c.end_reason, c.furthest_beat, c.final_rate, c.declined, c.turns_count,
+              r.score,
+              case when r.compliance_checks is null then null
+                   else not exists (select 1 from jsonb_each(r.compliance_checks) e where e.value = 'false'::jsonb) end as compliance_ok,
+              case when c.webhook_delivered_at is not null then 'delivered' when c.webhook_error is not null then 'failed' else 'none' end as webhook
+         from call c left join call_review r on r.call_id = c.id
+        where c.dealership_id = $1 order by c.started_at desc limit $2`,
+      [dealershipId, Math.min(Math.max(limit, 1), 200)]
+    );
+    return r.rows;
+  });
+}
+
+export async function getCall(db: Db, userId: string, dealershipId: string, callId: string) {
+  return run(db, userId, async (tx) => {
+    const call = (await tx.query<any>("select * from call where id = $1 and dealership_id = $2", [callId, dealershipId])).rows[0];
+    if (!call) throw new PortalError("No such call, or you don't have access to it.");
+    const turns = (
+      await tx.query<any>(
+        "select idx, customer_text, max_text, beat_before, beat_after, understanding, wording_source, heard, fraction_heard, timings, panels from turn where call_id = $1 order by idx",
+        [callId]
+      )
+    ).rows;
+    const review = (await tx.query<any>("select score, summary, problems, compliance_checks, created_at from call_review where call_id = $1", [callId])).rows[0] ?? null;
+    return { call, turns, review };
+  });
+}
+
+export interface Dashboard {
+  days: number;
+  calls: number;
+  completed_rate: number | null;
+  price_reached_rate: number | null;
+  take_rate: number | null;
+  avg_final_rate: number | null;
+  compliance_failures: number;
+  first_audio_ms: { median: number | null; p90: number | null; turns: number };
+  per_day: Array<{ day: string; calls: number }>;
+}
+
+/** PRD dashboard figures over the last `days` days (only ended calls count toward rates) */
+export async function dashboard(db: Db, userId: string, dealershipId: string, days = 30): Promise<Dashboard> {
+  return run(db, userId, async (tx) => {
+    const since = `now() - make_interval(days => $2)`;
+    const a = (
+      await tx.query<any>(
+        `select count(*)::int as calls,
+                avg((furthest_beat >= 25)::int) filter (where ended_at is not null) as completed_rate,
+                avg((furthest_beat >= 22)::int) filter (where ended_at is not null) as price_reached_rate,
+                avg((final_rate is not null)::int) filter (where ended_at is not null and furthest_beat >= 22) as take_rate,
+                avg(final_rate) as avg_final_rate
+           from call where dealership_id = $1 and started_at > ${since}`,
+        [dealershipId, days]
+      )
+    ).rows[0];
+    const cf = (
+      await tx.query<{ n: number }>(
+        `select count(*)::int as n from call_review r join call c on c.id = r.call_id
+          where c.dealership_id = $1 and c.started_at > ${since}
+            and exists (select 1 from jsonb_each(r.compliance_checks) e where e.value = 'false'::jsonb)`,
+        [dealershipId, days]
+      )
+    ).rows[0].n;
+    const lat = (
+      await tx.query<any>(
+        `select count(*)::int as turns,
+                percentile_cont(0.5) within group (order by (t.timings ->> 'first_audio_ms')::numeric) as median,
+                percentile_cont(0.9) within group (order by (t.timings ->> 'first_audio_ms')::numeric) as p90
+           from turn t join call c on c.id = t.call_id
+          where c.dealership_id = $1 and c.started_at > ${since} and t.timings ? 'first_audio_ms' and t.timings ->> 'first_audio_ms' is not null`,
+        [dealershipId, days]
+      )
+    ).rows[0];
+    const perDay = (
+      await tx.query<{ day: string; calls: number }>(
+        `select to_char(date_trunc('day', started_at), 'YYYY-MM-DD') as day, count(*)::int as calls
+           from call where dealership_id = $1 and started_at > ${since} group by 1 order by 1`,
+        [dealershipId, days]
+      )
+    ).rows;
+    const pct = (v: unknown) => (v === null || v === undefined ? null : Math.round(Number(v) * 1000) / 10);
+    return {
+      days,
+      calls: a.calls,
+      completed_rate: pct(a.completed_rate),
+      price_reached_rate: pct(a.price_reached_rate),
+      take_rate: pct(a.take_rate),
+      avg_final_rate: a.avg_final_rate === null ? null : Math.round(Number(a.avg_final_rate) * 100) / 100,
+      compliance_failures: cf,
+      first_audio_ms: { median: lat.median === null ? null : Math.round(Number(lat.median)), p90: lat.p90 === null ? null : Math.round(Number(lat.p90)), turns: lat.turns },
+      per_day: perDay,
+    };
+  });
+}
+
+/** The dealership's webhook (URL and whether active; the secret is never read back after it is set) */
+export async function getWebhook(db: Db, userId: string, dealershipId: string): Promise<{ url: string; active: boolean } | null> {
+  return run(db, userId, async (tx) => (await tx.query<any>("select url, active from dealership_webhook where dealership_id = $1", [dealershipId])).rows[0] ?? null);
+}
+
+/** Sets the webhook URL with a new signing secret, returned once to show to the editor */
+export async function setWebhook(db: Db, userId: string, dealershipId: string, url: string): Promise<string> {
+  const u = url.trim();
+  if (!/^https:\/\/[^\s/]+\.[^\s]+$/.test(u)) throw new PortalError("The webhook must be an https:// address.");
+  const { randomBytes } = await import("node:crypto");
+  const secret = randomBytes(32).toString("hex");
+  await run(db, userId, (tx) =>
+    tx.query(
+      `insert into dealership_webhook (dealership_id, url, secret) values ($1, $2, $3)
+       on conflict (dealership_id) do update set url = excluded.url, secret = excluded.secret, active = true, updated_at = now()`,
+      [dealershipId, u, secret]
+    )
+  );
+  return secret;
+}
+
+export async function removeWebhook(db: Db, userId: string, dealershipId: string): Promise<void> {
+  await run(db, userId, (tx) => tx.query("delete from dealership_webhook where dealership_id = $1", [dealershipId]));
+}

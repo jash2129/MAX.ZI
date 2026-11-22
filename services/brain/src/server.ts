@@ -3,6 +3,7 @@ import { createServer, type IncomingMessage } from "node:http";
 import { Readable } from "node:stream";
 
 import { createBrain } from "./app.ts";
+import type { CallRecorder } from "./recorder.ts";
 import { DealershipRegistry, type ConfigSource } from "./tenants.ts";
 
 // Local development: .env.local (written by `npm run service-login` in control-plane). Real env vars win.
@@ -11,22 +12,25 @@ const localEnv = new URL("../.env.local", import.meta.url);
 if (process.env.NODE_ENV !== "production" && process.env.BRAIN_ENV_FILE !== "off" && existsSync(localEnv)) process.loadEnvFile(localEnv);
 
 // Always-on process (Fly.io / Render / Railway): live calls need it, serverless functions do not fit.
-async function configSource(): Promise<ConfigSource> {
+async function configSource(): Promise<{ registry: ConfigSource; recorder?: CallRecorder }> {
   const url = process.env.DATABASE_URL?.trim();
-  if (!url) return DealershipRegistry.fromDirectory(process.env.DEALERSHIP_CONFIG_DIR || undefined);
+  if (!url) return { registry: DealershipRegistry.fromDirectory(process.env.DEALERSHIP_CONFIG_DIR || undefined) };
   // The control plane. This login must be a member of the brain_service role (and nothing more):
   //   create role brain_login login password '...' in role brain_service;
-  const [{ default: pg }, { fromPgPool, strictTls }, { PostgresConfigSource }] = await Promise.all([
+  const [{ default: pg }, { fromPgPool, strictTls }, { PostgresConfigSource }, { PgCallRecorder }] = await Promise.all([
     import("pg"),
     import("../../control-plane/src/db.ts"),
     import("./pg-config.ts"),
+    import("./recorder.ts"),
   ]);
-  return new PostgresConfigSource(fromPgPool(new pg.Pool({ connectionString: strictTls(url), max: 5 })));
+  const db = fromPgPool(new pg.Pool({ connectionString: strictTls(url), max: 5 }));
+  return { registry: new PostgresConfigSource(db), recorder: new PgCallRecorder(db) };
 }
 
-const registry = await configSource();
+const { registry, recorder } = await configSource();
 const handle = createBrain({
   registry,
+  recorder,
   token: process.env.BRAIN_TOKEN?.trim() || undefined,
   production: process.env.NODE_ENV === "production",
 });
@@ -69,3 +73,19 @@ const port = Number(process.env.PORT) || 8787;
 server.listen(port, () => {
   console.log(JSON.stringify({ event: "brain_listening", port, config: registry.kind, dealerships: registry.ids?.() ?? null }));
 });
+
+// Graceful shutdown (deploys, restarts): stop taking requests, then finish writing queued call
+// records before exiting; they live in memory until written. Up to 30 s, then exit anyway.
+let stopping = false;
+async function shutdown(signal: string) {
+  if (stopping) return;
+  stopping = true;
+  console.log(JSON.stringify({ event: "brain_stopping", signal }));
+  server.close();
+  const deadline = new Promise((r) => setTimeout(r, 30_000));
+  await Promise.race([recorder?.flush() ?? Promise.resolve(), deadline]);
+  console.log(JSON.stringify({ event: "brain_stopped" }));
+  process.exit(0);
+}
+process.on("SIGTERM", () => void shutdown("SIGTERM"));
+process.on("SIGINT", () => void shutdown("SIGINT"));

@@ -28,5 +28,7 @@ echo "== migrations, logins, auth tables, invite"
 (cd "$cp" && ENV_FILE="$envfile" npm run --silent service-login -- portal "$here/.env.local" PORTAL_DATABASE_URL)
 (cd "$cp" && ENV_FILE="$envfile" npm run --silent service-login -- auth_service "$here/.env.local" AUTH_DATABASE_URL)
 (cd "$here" && npm run --silent auth:migrate)
+# the brain on this branch (writes call records): its login goes to brain/.env.branch, never .env.local
+(cd "$cp" && ENV_FILE="$envfile" npm run --silent service-login -- brain_service "$here/../brain/.env.branch" DATABASE_URL)
 (cd "$cp" && ENV_FILE="$envfile" npm run --silent invite -- owner@example.com "$linkfile")
 echo "== ready"

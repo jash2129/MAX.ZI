@@ -40,6 +40,14 @@ browser ──(Daily room: mic in; avatar video, Max's audio, panel events out)�
   16-journey suite through the real controller (`tavus-avatar/src/lib/release-gate.ts`). Not yet:
   dashboards, calls list and inspector (needs call records from the worker), agency and dealership
   creation screens, billing; the AI-persona simulator as a second gate.
+- **Phase 4, call records:**
+  - Done: the brain records every call off the critical path (call, turns with what was heard and
+    stage timings, consent time, outcome). After each call it writes a review (scorecard plus the
+    PRD's compliance checks), usage minutes, and a signed webhook to the dealership.
+  - In the portal: a 30-day dashboard (calls, completion, price reached, take rate, average rate,
+    latency median and 90th percentile, compliance failures), the calls list, and the call inspector.
+  - Not yet: recordings, the AI review (summary and sentiment), and closing calls a worker never
+    ended.
   - Open question (yours to decide): a lowball under the floor ("can you do two dollars?") gets the
     floor at once, skipping steps. That's the demo's existing TXM-approved behavior; read strictly,
     the PRD's "one step down per refusal" would forbid it.

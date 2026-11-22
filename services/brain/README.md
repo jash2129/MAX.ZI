@@ -45,6 +45,28 @@ handled one at a time: a commit always lands before the next turn.
 
 `panels` are the PRD's data-channel events: `{"event":"panel.show","panel":"warranty_terms" | "repair_costs" | "coverage_grid" | "price" | "deal_summary","data":{…}}` and `{"event":"panel.hide"}`. The price panel only ever carries the single rate Max is saying.
 
+## Call records
+
+With `DATABASE_URL` set, the brain writes every call to the control plane (`src/recorder.ts`). It does
+this off the call's critical path: writes go on a per-call queue that `/turn` and `/commit` never wait
+for, and a failed write is logged (`call_record_failed`, never call content) while the call goes on.
+
+| When | What is written |
+| --- | --- |
+| `POST /calls` (new call) | `call`: the dealership, and the script, price and knowledge-base version ids the call runs on |
+| each `/turn` | `turn`: what the customer said, what Max said, beat before and after, who understood (`rules` / `ai`) and the intent, who worded it (`approved-line` / `ai` / `free-ai`), panels shown, brain timings. The consent time is set when the call moves past Beat 1. |
+| each `/commit` | the turn's `heard` and `fraction_heard`, plus the voice worker's stage timings (`timings`: numbers only, at most 20 keys) |
+| `POST /end` `{reason}` | end time and reason, furthest beat, final daily rate or declined; the **after-call review**: the scorecard and the PRD's compliance checks (disclosure said word for word, consent before Beat 2, only approved prices, never confirmed after a refusal); **usage** (minutes); the **dealership webhook** |
+
+**Webhook.** If the dealership has one (`dealership_webhook`, set in the portal), a JSON summary is
+POSTed with no transcript and no customer details: outcome, daily rate, compliance checks, score and
+times. It carries `X-Max-Signature: t=<unix seconds>,v1=<hex HMAC-SHA256 of "<t>.<body>">`. Delivery is
+retried 3 times (not after a 4xx other than 429), then the failure is recorded on the call
+(`webhook_error`).
+
+**Not yet:** recordings (Daily cloud recording plus encrypted storage and retention), and the AI review
+(summary, sentiment): `call_review` has the deterministic part only.
+
 ## Dealerships
 
 **From the control plane** (`DATABASE_URL`, see [../control-plane](../control-plane/README.md)): only a

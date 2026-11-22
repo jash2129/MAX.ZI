@@ -87,12 +87,18 @@ class BrainProcessor(FrameProcessor):
         self._finish_task: asyncio.Task | None = None
         self._bot_speaking = False
         self._end_reason: str | None = None
+        self._ended_reason: str | None = None
         self._silence_prompts = 0
         self._timing: dict[str, float | None] = {}
         self._last_turn_text = ""
         self._seen_messages = 0
 
     # ---- public hooks (bot.py) -------------------------------------------------------------------
+
+    @property
+    def ended_reason(self) -> str | None:
+        """Why the script ended the call (script_complete / stopped), if it did"""
+        return self._ended_reason
 
     async def say_opening(self, text: str, beat: int) -> None:
         """Speak the line returned by POST /calls. It is not a brain turn, so it is never committed."""
@@ -249,6 +255,7 @@ class BrainProcessor(FrameProcessor):
             self._commit(d, interrupted=False)
         if self._end_reason:
             reason, self._end_reason = self._end_reason, None
+            self._ended_reason = reason
             await self._send_event({"event": "call.ended", "reason": reason})
             if self._on_call_end:
                 await self._on_call_end(reason)
@@ -271,12 +278,12 @@ class BrainProcessor(FrameProcessor):
     def _commit(self, d: ReplyDelivery, *, interrupted: bool) -> None:
         heard, fraction = d.outcome(self._clock(), interrupted)
         d.committed = True
-        self._log_timing(d.turn_id, heard, fraction, interrupted)
-        self._commit_task = self.create_task(self._send_commit(d.turn_id, heard, fraction), name=f"commit_{d.turn_id}")
+        timings = self._log_timing(d.turn_id, heard, fraction, interrupted)
+        self._commit_task = self.create_task(self._send_commit(d.turn_id, heard, fraction, timings), name=f"commit_{d.turn_id}")
 
-    async def _send_commit(self, turn_id: int, heard: bool, fraction: float) -> None:
+    async def _send_commit(self, turn_id: int, heard: bool, fraction: float, timings: dict[str, int | None] | None = None) -> None:
         try:
-            await self._brain.commit(turn_id, heard, fraction)
+            await self._brain.commit(turn_id, heard, fraction, timings)
         except BrainError as e:
             logger.warning(f"commit {turn_id} failed: {e}")
 
@@ -297,7 +304,8 @@ class BrainProcessor(FrameProcessor):
             except (TimeoutError, asyncio.TimeoutError):
                 logger.warning("commit still pending; sending the next turn anyway")
 
-    def _log_timing(self, turn_id: int, heard: bool, fraction: float, interrupted: bool) -> None:
+    def _log_timing(self, turn_id: int, heard: bool, fraction: float, interrupted: bool) -> dict[str, int | None]:
+        """Logs one turn_timing line and returns the stage timings for the brain's call record."""
         t = self._timing
         start = t.get("turn_end")
 
@@ -321,6 +329,7 @@ class BrainProcessor(FrameProcessor):
                 }
             )
         )
+        return {"worker_brain_early_ms": ms("early"), "worker_brain_final_ms": ms("final"), "first_audio_ms": ms("first_audio"), "interrupted": int(interrupted)}
 
 
 class DeliveryTap(FrameProcessor):

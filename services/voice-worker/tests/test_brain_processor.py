@@ -34,6 +34,7 @@ class RecordingBrain(BrainClient):
     def __init__(self, *a, **kw):
         super().__init__(*a, **kw)
         self.commits: list[tuple[int, bool, float]] = []
+        self.timings: list[dict | None] = []
         self.turns: list[tuple[int, str]] = []
 
     async def turn(self, turn_id, transcript):
@@ -41,9 +42,10 @@ class RecordingBrain(BrainClient):
         async for m in super().turn(turn_id, transcript):
             yield m
 
-    async def commit(self, turn_id, heard, fraction_heard):
+    async def commit(self, turn_id, heard, fraction_heard, timings=None):
         self.commits.append((turn_id, heard, round(fraction_heard, 2)))
-        return await super().commit(turn_id, heard, fraction_heard)
+        self.timings.append(timings)
+        return await super().commit(turn_id, heard, fraction_heard, timings)
 
 
 async def new_call(brain_url: str, dealership: str = "demo-mazda") -> RecordingBrain:
@@ -96,6 +98,9 @@ async def test_a_turn_is_spoken_captioned_and_committed_as_heard(brain_url):
     kinds = [e["event"] for e in events(down)]
     assert "caption" in kinds and "call.state" in kinds
     assert brain.commits == [(1, True, 1.0)]
+    # the stage timings go to the brain for the call record
+    assert set(brain.timings[0]) == {"worker_brain_early_ms", "worker_brain_final_ms", "first_audio_ms", "interrupted"}
+    assert brain.timings[0]["first_audio_ms"] is not None and brain.timings[0]["interrupted"] == 0
 
 
 @pytest.mark.asyncio
