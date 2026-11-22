@@ -23,7 +23,8 @@ outside Next.js. Keep it when you write a Dockerfile or start command.
 | --- | --- |
 | `BRAIN_TOKEN` | Shared secret with the voice workers (`Authorization: Bearer …`). Unset: open in dev, **503 in production**. |
 | `PORT` | Default 8787 |
-| `DEALERSHIP_CONFIG_DIR` | Default `config/dealerships` |
+| `DATABASE_URL` | The control plane's Postgres. Set: dealership config is read from it (live, approved versions only, cached 30 s). Unset: JSON files. The login must be a member of `brain_service` and nothing else. |
+| `DEALERSHIP_CONFIG_DIR` | Default `config/dealerships` (when `DATABASE_URL` is unset) |
 | `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` | Call state in Redis (2-hour expiry). Needed as soon as there is more than one brain instance. |
 | `XAI_API_KEY`, `MAX_UNDERSTANDING`, `MAX_SPEECH`, `MAX_STREAM`, `MAX_MODE`, `GROK_MODEL` | Same AI switches as the demo (see the root `CLAUDE.md`). Set `MAX_STREAM=on` so `/turn` sends `early` lines. |
 
@@ -44,9 +45,18 @@ handled one at a time: a commit always lands before the next turn.
 
 `panels` are the PRD's data-channel events: `{"event":"panel.show","panel":"warranty_terms" | "repair_costs" | "coverage_grid" | "price" | "deal_summary","data":{…}}` and `{"event":"panel.hide"}`. The price panel only ever carries the single rate Max is saying.
 
-## Dealerships (Phase 1)
+## Dealerships
 
-One JSON file per dealership in `config/dealerships/`. An invalid file stops start-up.
+**From the control plane** (`DATABASE_URL`, see [../control-plane](../control-plane/README.md)): only a
+new call (`POST /calls`) reads config; a call in progress keeps what it started with, even if a new
+version goes live. `/calls` returns the version ids the call runs on. Until the controller reads beats,
+knowledge base and ladder per call, a live version is accepted only if its content **is** the content
+the controller runs (the demo's); any other live content refuses new calls for that dealership with a
+`dealership_refused` log line. Otherwise an approver could approve script v2 while customers still
+heard v1.
+
+**From files** (development): one JSON file per dealership in `config/dealerships/`. An invalid file
+stops start-up.
 
 What is per dealership **today**: name, Max's display name, default vehicle, speech keyterms.
 What is **not yet** per dealership (still the demo's files and code): the 25 beats, fixed lines,

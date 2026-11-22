@@ -10,6 +10,9 @@ COPY tavus-avatar/src/lib ./tavus-avatar/src/lib
 # (--conditions=react-server makes it a no-op.)
 RUN npm install --prefix /app --no-save --no-audit --no-fund server-only@0.0.1
 
+# Control-plane config loader (DATABASE_URL); its tests and PGlite are not needed at runtime
+COPY services/control-plane/src/db.ts services/control-plane/src/live-config.ts ./services/control-plane/src/
+
 COPY services/brain/package.json services/brain/package-lock.json ./services/brain/
 RUN cd services/brain && npm ci --omit=dev --no-audit --no-fund
 COPY services/brain/src ./services/brain/src

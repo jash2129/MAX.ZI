@@ -14,7 +14,7 @@ import { streamingEnabled } from "../../../tavus-avatar/src/lib/llm-stream.ts";
 import { loadSession, saveSession, sharedStoreEnabled } from "../../../tavus-avatar/src/lib/session-store.ts";
 
 import { toPanelEvents } from "./panels.ts";
-import { DealershipRegistry, ID_PATTERN, type DealershipConfig } from "./tenants.ts";
+import { ID_PATTERN, type ConfigSource, type DealershipConfig } from "./tenants.ts";
 
 /**
  * Max's brain as a service (PRD "Conversation brain" > Interface). Stateless between requests: each
@@ -29,7 +29,8 @@ import { DealershipRegistry, ID_PATTERN, type DealershipConfig } from "./tenants
  */
 
 export interface BrainOptions {
-  registry: DealershipRegistry;
+  /** Dealership config: JSON files (dev) or the control plane's Postgres (live, approved versions) */
+  registry: ConfigSource;
   /** Shared secret between voice workers and the brain. Unset: open in dev, 503 in production. */
   token?: string;
   production?: boolean;
@@ -123,14 +124,24 @@ export function createBrain(opts: BrainOptions) {
     throw new HttpError(400, "body must be a JSON object");
   }
 
-  function callOf(body: Json): { key: string; dealership: DealershipConfig } {
+  /** The call's key. Only format is checked: an existing call is proven by its saved state. */
+  function keyOf(body: Json): { key: string; dealershipId: string } {
     const callId = body.call_id;
     const dealershipId = body.dealership_id;
     if (typeof callId !== "string" || !ID_PATTERN.test(callId)) throw new HttpError(400, "call_id is required (a-z, 0-9, - and _)");
-    if (typeof dealershipId !== "string") throw new HttpError(400, "dealership_id is required");
-    const dealership = opts.registry.get(dealershipId);
+    if (typeof dealershipId !== "string" || !ID_PATTERN.test(dealershipId)) throw new HttpError(400, "dealership_id is required");
+    return { key: sessionKey(dealershipId, callId), dealershipId };
+  }
+
+  /**
+   * Only a new call resolves the dealership's config. Later requests for the call run on what it started
+   * with (PRD: calls in progress keep their version), even if a new version goes live meanwhile.
+   */
+  async function callOf(body: Json): Promise<{ key: string; dealership: DealershipConfig }> {
+    const { key, dealershipId } = keyOf(body);
+    const dealership = await opts.registry.get(dealershipId);
     if (!dealership) throw new HttpError(404, "unknown dealership");
-    return { key: sessionKey(dealership.id, callId), dealership };
+    return { key, dealership };
   }
 
   /** The call must have been started with POST /calls (its deal is fixed at the start). */
@@ -139,19 +150,19 @@ export function createBrain(opts: BrainOptions) {
   }
 
   async function startCall(body: Json): Promise<Response> {
-    const { key, dealership } = callOf(body);
+    const { key, dealership } = await callOf(body);
     return withCallLock(key, async () => {
       await loadSession(key);
       const resumed = activeStates.has(key);
       const state = getOrCreateCallState(key, dealConfigFor(dealership, body.deal));
       await saveSession(key);
-      return json({ text: state.last_spoken_text, beat: state.current_beat, panels: [], resumed, max_display_name: dealership.max_display_name, speech_keyterms: dealership.speech_keyterms });
+      return json({ text: state.last_spoken_text, beat: state.current_beat, panels: [], resumed, max_display_name: dealership.max_display_name, speech_keyterms: dealership.speech_keyterms, versions: dealership.versions ?? null });
     });
   }
 
   async function turn(body: Json): Promise<Response> {
     const routeStart = now();
-    const { key } = callOf(body);
+    const { key } = keyOf(body);
     const transcript = typeof body.transcript === "string" ? body.transcript.slice(0, 2000) : "";
     const turnId = Number(body.turn_id);
     if (!Number.isInteger(turnId) || turnId < 1) throw new HttpError(400, "turn_id must be a positive integer");
@@ -212,7 +223,7 @@ export function createBrain(opts: BrainOptions) {
   }
 
   async function commit(body: Json): Promise<Response> {
-    const { key } = callOf(body);
+    const { key } = keyOf(body);
     const turnId = Number(body.turn_id);
     if (!Number.isInteger(turnId)) throw new HttpError(400, "turn_id is required");
     const fraction = Math.min(1, Math.max(0, Number(body.fraction_heard) || 0));
@@ -226,7 +237,7 @@ export function createBrain(opts: BrainOptions) {
   }
 
   async function reprompt(body: Json): Promise<Response> {
-    const { key } = callOf(body);
+    const { key } = keyOf(body);
     const kind = ["resume", "still_with_me", "clarify"].includes(String(body.kind)) ? (body.kind as "resume" | "still_with_me" | "clarify") : "resume";
     return withCallLock(key, async () => {
       await loadSession(key);
@@ -238,7 +249,7 @@ export function createBrain(opts: BrainOptions) {
   }
 
   async function end(body: Json): Promise<Response> {
-    const { key } = callOf(body);
+    const { key } = keyOf(body);
     return withCallLock(key, async () => {
       // Redis copies expire on their own (2 h); this frees this process's memory now
       resetCallState(key);
@@ -250,7 +261,7 @@ export function createBrain(opts: BrainOptions) {
     const { pathname } = new URL(req.url);
     try {
       if (req.method === "GET" && pathname === "/health") {
-        return json({ ok: true, dealerships: opts.registry.ids().length, streaming: streamingEnabled(), sharedStore: sharedStoreEnabled(), auth: Boolean(opts.token) });
+        return json({ ok: true, config: opts.registry.kind, dealerships: opts.registry.ids?.().length ?? null, streaming: streamingEnabled(), sharedStore: sharedStoreEnabled(), auth: Boolean(opts.token) });
       }
       if (req.method !== "POST") throw new HttpError(404, "not found");
       authorize(req);

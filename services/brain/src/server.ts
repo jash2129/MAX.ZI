@@ -2,10 +2,23 @@ import { createServer, type IncomingMessage } from "node:http";
 import { Readable } from "node:stream";
 
 import { createBrain } from "./app.ts";
-import { DealershipRegistry } from "./tenants.ts";
+import { DealershipRegistry, type ConfigSource } from "./tenants.ts";
 
 // Always-on process (Fly.io / Render / Railway): live calls need it, serverless functions do not fit.
-const registry = DealershipRegistry.fromDirectory(process.env.DEALERSHIP_CONFIG_DIR || undefined);
+async function configSource(): Promise<ConfigSource> {
+  const url = process.env.DATABASE_URL?.trim();
+  if (!url) return DealershipRegistry.fromDirectory(process.env.DEALERSHIP_CONFIG_DIR || undefined);
+  // The control plane. This login must be a member of the brain_service role (and nothing more):
+  //   create role brain_login login password '...' in role brain_service;
+  const [{ default: pg }, { fromPgPool }, { PostgresConfigSource }] = await Promise.all([
+    import("pg"),
+    import("../../control-plane/src/db.ts"),
+    import("./pg-config.ts"),
+  ]);
+  return new PostgresConfigSource(fromPgPool(new pg.Pool({ connectionString: url, max: 5 })));
+}
+
+const registry = await configSource();
 const handle = createBrain({
   registry,
   token: process.env.BRAIN_TOKEN?.trim() || undefined,
@@ -48,5 +61,5 @@ const server = createServer(async (req, res) => {
 
 const port = Number(process.env.PORT) || 8787;
 server.listen(port, () => {
-  console.log(JSON.stringify({ event: "brain_listening", port, dealerships: registry.ids() }));
+  console.log(JSON.stringify({ event: "brain_listening", port, config: registry.kind, dealerships: registry.ids?.() ?? null }));
 });

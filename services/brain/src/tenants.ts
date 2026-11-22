@@ -16,6 +16,15 @@ export interface DealershipConfig {
   default_vehicle: { year: string; make: string; model: string };
   price_ladder: number[];
   speech_keyterms: string[];
+  /** The control plane's live version ids this call runs on (null with file config) */
+  versions?: { script: string | null; price: string | null; kb: string | null };
+}
+
+/** Where dealership config comes from: JSON files (dev) or the control plane's Postgres. */
+export interface ConfigSource {
+  readonly kind: "files" | "postgres";
+  get(id: string): Promise<DealershipConfig | undefined>;
+  ids?(): string[];
 }
 
 /** The ladder the controller enforces in code today (beat-controller.ts CONCESSION_LADDER). */
@@ -47,7 +56,8 @@ export function validateDealership(raw: unknown, source: string): DealershipConf
   };
 }
 
-export class DealershipRegistry {
+export class DealershipRegistry implements ConfigSource {
+  readonly kind = "files" as const;
   private readonly byId = new Map<string, DealershipConfig>();
 
   constructor(configs: DealershipConfig[]) {
@@ -63,7 +73,7 @@ export class DealershipRegistry {
     return new DealershipRegistry(files.map((f) => validateDealership(JSON.parse(readFileSync(join(dir, f), "utf8")), f)));
   }
 
-  get(id: string): DealershipConfig | undefined {
+  async get(id: string): Promise<DealershipConfig | undefined> {
     return this.byId.get(id);
   }
 
