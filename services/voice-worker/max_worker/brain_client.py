@@ -47,8 +47,11 @@ class BrainClient:
             raise BrainError(f"{path}: HTTP {res.status_code} {res.text[:200]}")
         return res.json()
 
-    async def start(self, deal: dict[str, str] | None = None) -> dict[str, Any]:
-        return await self._post("/calls", {"deal": deal or {}})
+    async def start(self, deal: dict[str, str] | None = None, deal_id: str | None = None) -> dict[str, Any]:
+        body: dict[str, Any] = {"deal": deal or {}}
+        if deal_id:
+            body["deal_id"] = deal_id
+        return await self._post("/calls", body)
 
     async def turn(self, turn_id: int, transcript: str) -> AsyncIterator[dict[str, Any]]:
         """Yields the brain's NDJSON lines: at most one {"type":"early"}, then {"type":"final"}."""

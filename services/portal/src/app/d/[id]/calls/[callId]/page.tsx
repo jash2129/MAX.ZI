@@ -1,8 +1,9 @@
 import Link from "next/link";
 
-import { Shell } from "@/components/chrome";
+import { forgetCallAction } from "@/app/actions";
+import { Notices, Shell } from "@/components/chrome";
 import { portalDb } from "@/server/db";
-import { getCall, getDealership } from "@/server/portal";
+import { getCall, getDealership, permissions } from "@/server/portal";
 import { requirePerson } from "@/server/session";
 
 export const dynamic = "force-dynamic";
@@ -16,11 +17,16 @@ const CHECK_LABEL: Record<string, string> = {
 };
 
 /** The call inspector (PRD): transcript, what was heard, who understood and worded each turn, timings, panels, review */
-export default async function CallDetail({ params }: { params: Promise<{ id: string; callId: string }> }) {
+export default async function CallDetail({ params, searchParams }: { params: Promise<{ id: string; callId: string }>; searchParams: Promise<Record<string, string>> }) {
   const person = await requirePerson();
   const { id, callId } = await params;
+  const search = await searchParams;
   const db = portalDb();
-  const [dealership, { call, turns, review }] = await Promise.all([getDealership(db, person.id, id), getCall(db, person.id, id, decodeURIComponent(callId))]);
+  const [dealership, { call, turns, review }, can] = await Promise.all([
+    getDealership(db, person.id, id),
+    getCall(db, person.id, id, decodeURIComponent(callId)),
+    permissions(db, person.id, id),
+  ]);
   const checks = (review?.compliance_checks ?? {}) as Record<string, boolean>;
   return (
     <Shell person={person}>
@@ -104,6 +110,28 @@ export default async function CallDetail({ params }: { params: Promise<{ id: str
         </table>
       </div>
       <p className="muted">Recordings are not stored yet (see the platform roadmap).</p>
+      <Notices search={search} ok={{ forgotten: "The call's transcript, review text and recording were deleted. Its outcome stays for counts and billing." }} />
+
+      {can.edit && turns.length > 0 && (
+        <>
+          <h2>Delete this call&apos;s content</h2>
+          <form action={forgetCallAction} className="panel">
+            <input type="hidden" name="dealership" value={id} />
+            <input type="hidden" name="call" value={call.id} />
+            <p className="muted">
+              For a customer&apos;s deletion request: the transcript, the review text and any recording are deleted for good. The outcome (date, length,
+              accepted or declined, rate) stays for counts and billing. This is recorded in the change history.
+            </p>
+            <label htmlFor="confirm">Type DELETE to confirm</label>
+            <input id="confirm" name="confirm" autoComplete="off" />
+            <p>
+              <button className="danger" type="submit">
+                Delete the content
+              </button>
+            </p>
+          </form>
+        </>
+      )}
     </Shell>
   );
 }

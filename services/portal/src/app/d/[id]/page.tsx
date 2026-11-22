@@ -1,10 +1,19 @@
 import { cookies } from "next/headers";
 import Link from "next/link";
 
-import { addPersonAction, newDraftAction, reinviteAction, removePersonAction, removeWebhookAction, setWebhookAction } from "@/app/actions";
+import {
+  addPersonAction,
+  createApiKeyAction,
+  newDraftAction,
+  reinviteAction,
+  removePersonAction,
+  removeWebhookAction,
+  revokeApiKeyAction,
+  setWebhookAction,
+} from "@/app/actions";
 import { KIND_LABEL, Notices, Shell, Status } from "@/components/chrome";
 import { portalDb } from "@/server/db";
-import { KINDS, auditLog, dashboard, getDealership, getWebhook, listPeople, listVersions, permissions } from "@/server/portal";
+import { KINDS, auditLog, dashboard, getDealership, getWebhook, listApiKeys, listPeople, listVersions, permissions } from "@/server/portal";
 import { requirePerson } from "@/server/session";
 
 export const dynamic = "force-dynamic";
@@ -18,12 +27,15 @@ export default async function DealershipPage({ params, searchParams }: { params:
   const db = portalDb();
   const [dealership, can] = await Promise.all([getDealership(db, person.id, id), permissions(db, person.id, id)]);
   const versions = await Promise.all(KINDS.map((k) => listVersions(db, person.id, id, k)));
-  const [people, audit, stats, webhook] = await Promise.all([
+  const [people, audit, stats, webhook, apiKeys] = await Promise.all([
     listPeople(db, person.id, id),
     auditLog(db, person.id, id, 30),
     dashboard(db, person.id, id, 30),
     can.edit ? getWebhook(db, person.id, id) : Promise.resolve(null),
+    can.edit ? listApiKeys(db, person.id, id) : Promise.resolve([]),
   ]);
+  const newKey = (await cookies()).get("flash_api_key")?.value ?? null;
+  const live = versions.every((v) => v.some((x) => x.status === "live"));
 
   // A just-created invite link or webhook secret, shown once (set by an action, never in the URL)
   const jar = await cookies();
@@ -41,7 +53,20 @@ export default async function DealershipPage({ params, searchParams }: { params:
       <p className="muted">
         {dealership.id} · Max is called {dealership.max_display_name} · {can.approve ? "you can approve" : can.edit ? "you can edit" : "view only"}
       </p>
-      <Notices search={search} ok={{ approved: "Approved: the new version is live for new calls. Calls in progress keep theirs.", rolledback: "Rolled back: the earlier version is live for new calls." }} />
+      <Notices
+        search={search}
+        ok={{
+          approved: "Approved: the new version is live for new calls. Calls in progress keep theirs.",
+          rolledback: "Rolled back: the earlier version is live for new calls.",
+          created: "Dealership created with draft versions copied from the template.",
+        }}
+      />
+      {!live && (
+        <p className="notice warn">
+          Not taking calls yet: the script, price ladder and knowledge base each need an approved, live version. Open each draft, submit it, run the
+          release gate, and have an approver approve it.
+        </p>
+      )}
 
       <h2>Last 30 days</h2>
       <div className="grid2">
@@ -233,6 +258,73 @@ export default async function DealershipPage({ params, searchParams }: { params:
                 </button>
               </form>
             )}
+          </div>
+        </>
+      )}
+
+      {can.edit && (
+        <>
+          <h2 id="api-keys">Deal intake API keys</h2>
+          {newKey && (
+            <div className="notice ok" role="status">
+              New API key (copy it into your dealership system now, it is not shown again):
+              <div className="mono" style={{ wordBreak: "break-all", marginTop: 6 }}>
+                {newKey}
+              </div>
+            </div>
+          )}
+          <div className="panel">
+            <p className="muted">
+              Your dealership system sends each deal to <code>POST /api/v1/deals</code> with <code>Authorization: Bearer &lt;key&gt;</code> and{" "}
+              <code>{`{"external_ref", "vehicle": {"year", "make", "model"}, "customer_first_name"}`}</code>. It gets back a <code>deal_id</code> (valid 2 hours) to
+              start the call with, so Max already knows the vehicle.
+            </p>
+            {apiKeys.length > 0 && (
+              <div className="scroll">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Key</th>
+                      <th>Label</th>
+                      <th>Created</th>
+                      <th>Last used</th>
+                      <th />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {apiKeys.map((k) => (
+                      <tr key={k.id}>
+                        <td className="mono">{k.prefix}…</td>
+                        <td>{k.label}</td>
+                        <td>
+                          {fmt(k.created_at)}
+                          {k.created_by && <div className="muted">{k.created_by}</div>}
+                        </td>
+                        <td>{k.last_used_at ? fmt(k.last_used_at) : "never"}</td>
+                        <td>
+                          {k.revoked_at ? (
+                            <span className="muted">revoked {fmt(k.revoked_at)}</span>
+                          ) : (
+                            <form action={revokeApiKeyAction}>
+                              <input type="hidden" name="dealership" value={id} />
+                              <input type="hidden" name="key" value={k.id} />
+                              <button className="danger" type="submit">
+                                Revoke
+                              </button>
+                            </form>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+            <form action={createApiKeyAction} className="row" style={{ marginTop: 8 }}>
+              <input type="hidden" name="dealership" value={id} />
+              <input name="label" placeholder="What uses it (e.g. DMS)" style={{ flex: "1 1 220px" }} />
+              <button type="submit">Create API key</button>
+            </form>
           </div>
         </>
       )}

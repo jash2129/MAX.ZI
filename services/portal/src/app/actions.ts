@@ -10,7 +10,11 @@ import {
   PortalError,
   addPerson,
   approve,
+  createApiKey,
+  createDealership,
   createDraft,
+  forgetCall,
+  revokeApiKey,
   deleteDraft,
   getVersion,
   needsTwoFactor,
@@ -299,6 +303,56 @@ export async function setWebhookAction(form: FormData) {
     // shown once, like an invite link
     (await cookies()).set("flash_webhook_secret", secret, { httpOnly: true, sameSite: "strict", secure: (process.env.PORTAL_URL || "").startsWith("https"), maxAge: 120, path: "/" });
     return `/d/${encodeURIComponent(d)}#webhook`;
+  });
+}
+
+// ---------------------------------------------------------------------------------------------------
+// Onboarding, API keys, deletion on request
+// ---------------------------------------------------------------------------------------------------
+
+export async function createDealershipAction(form: FormData) {
+  const p = await requirePerson();
+  await act("/", async () => {
+    const id = str(form, "id").toLowerCase();
+    await createDealership(portalDb(), p.id, {
+      id,
+      name: str(form, "name"),
+      agency: str(form, "agency") || null,
+      template: str(form, "template"),
+      vehicle: { year: str(form, "vehicle_year"), make: str(form, "vehicle_make"), model: str(form, "vehicle_model") },
+      keyterms: str(form, "keyterms").split(",").map((k) => k.trim()).filter(Boolean).slice(0, 50),
+    });
+    return `/d/${encodeURIComponent(id)}?created=1`;
+  });
+}
+
+export async function createApiKeyAction(form: FormData) {
+  const p = await requirePerson();
+  const d = str(form, "dealership");
+  await act(`/d/${encodeURIComponent(d)}`, async () => {
+    const key = await createApiKey(portalDb(), p.id, d, str(form, "label"));
+    (await cookies()).set("flash_api_key", key, { httpOnly: true, sameSite: "strict", secure: (process.env.PORTAL_URL || "").startsWith("https"), maxAge: 120, path: "/" });
+    return `/d/${encodeURIComponent(d)}#api-keys`;
+  });
+}
+
+export async function revokeApiKeyAction(form: FormData) {
+  const p = await requirePerson();
+  const d = str(form, "dealership");
+  await act(`/d/${encodeURIComponent(d)}`, async () => {
+    await revokeApiKey(portalDb(), p.id, str(form, "key"));
+    return `/d/${encodeURIComponent(d)}#api-keys`;
+  });
+}
+
+export async function forgetCallAction(form: FormData) {
+  const p = await requirePerson();
+  const d = str(form, "dealership");
+  const call = str(form, "call");
+  await act(`/d/${encodeURIComponent(d)}/calls/${encodeURIComponent(call)}`, async () => {
+    if (str(form, "confirm") !== "DELETE") throw new PortalError('Type DELETE to confirm.');
+    await forgetCall(portalDb(), p.id, call);
+    return `/d/${encodeURIComponent(d)}/calls/${encodeURIComponent(call)}?forgotten=1`;
   });
 }
 

@@ -24,11 +24,14 @@ from loguru import logger
 from pydantic import BaseModel, Field
 
 ID_PATTERN = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
+UUID_PATTERN = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
 ROOM_TTL_S = 60 * 60
 
 
 class StartCall(BaseModel):
     dealership_id: str
+    # a deal from the dealership's system (control-plane intake API): the brain loads its vehicle
+    deal_id: str | None = None
     deal: dict[str, str] = Field(default_factory=dict)
 
 
@@ -132,6 +135,8 @@ def create_app(settings: Settings, rooms: RoomProvider | None = None, runner=Non
         authorize(authorization)
         if not ID_PATTERN.match(body.dealership_id):
             raise HTTPException(400, "bad dealership_id")
+        if body.deal_id is not None and not UUID_PATTERN.match(body.deal_id):
+            raise HTTPException(400, "bad deal_id")
         if len(active) >= settings.max_calls:
             # The load balancer / caller tries another worker
             raise HTTPException(503, "worker at capacity")
@@ -150,6 +155,7 @@ def create_app(settings: Settings, rooms: RoomProvider | None = None, runner=Non
             avatar_sandbox=settings.avatar_sandbox,
             tts_voice=settings.tts_voice,
             deal={k: str(v)[:60] for k, v in body.deal.items() if k in ("vehicle_year", "vehicle_make", "vehicle_model")},
+            deal_id=body.deal_id,
         )
 
         async def guarded():

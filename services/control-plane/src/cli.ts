@@ -10,6 +10,7 @@ import { resolve } from "node:path";
 
 import { fromPgPool, migrate, strictTls } from "./db.ts";
 import { seedDemo } from "./seed-demo.ts";
+import { forgetCall, maintain } from "./maintenance.ts";
 
 /** Sets KEY=value in an env file, keeping its other lines. The value is never printed. */
 function writeEnvVar(path: string, key: string, value: string) {
@@ -89,6 +90,14 @@ async function main() {
       pooled.password = password;
       writeEnvVar(resolve(target), envVar, pooled.toString());
       console.log(`${exists ? "rotated" : "created"} ${login} (member of ${MEMBER_OF[role].join(", ")}); ${envVar} written to ${resolve(target)}`);
+    } else if (cmd === "maintain") {
+      // closes abandoned calls, deletes expired deals, enforces transcript and recording retention
+      console.log(JSON.stringify(await maintain(db, { staleHours: Number(arg) || undefined })));
+    } else if (cmd === "forget-call") {
+      // deletion on request: forget-call <call id>
+      if (!arg) throw new Error("usage: forget-call <call id>");
+      await forgetCall(db, arg);
+      console.log(`forgot the content of call ${arg} (its outcome row stays)`);
     } else if (cmd === "invite") {
       // invite <email> <file>: the first admin's way in (or anyone's, by the owner). Writes the one-time
       // link to <file> instead of printing it: it is a credential until used.

@@ -63,6 +63,7 @@ class CallConfig:
     avatar_sandbox: bool = False
     tts_voice: str = "aura-2-arcas-en"
     deal: dict[str, str] = field(default_factory=dict)
+    deal_id: str | None = None
 
 
 def noise_filter():
@@ -86,7 +87,7 @@ def noise_filter():
 async def run_call(cfg: CallConfig) -> None:
     log = logger.bind(call_id=cfg.call_id, dealership_id=cfg.dealership_id)
     brain = BrainClient(cfg.brain_url, cfg.dealership_id, cfg.call_id, token=cfg.brain_token)
-    opening = await brain.start(cfg.deal)  # raises BrainError: the call is not started at all
+    opening = await brain.start(cfg.deal, cfg.deal_id)  # raises BrainError (e.g. unknown deal): the call is not started
 
     async with aiohttp.ClientSession() as http:
         transport = DailyTransport(

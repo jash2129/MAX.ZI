@@ -48,6 +48,25 @@ All enforced in the database:
 - Every config change and approval is in `audit_log`, with who did it, readable only by that
   dealership's people.
 
+## Onboarding, deal intake, retention (migration 009)
+
+- **New dealership, no code:** `app.create_dealership` (portal: home page). The platform owner can
+  create one anywhere; an agency admin only in their agency. It starts with **draft** versions copied
+  from a template dealership the creator can read. Nothing is live, so the brain refuses its calls
+  until each draft passes the release gate and is approved.
+- **Deal intake API keys:** `app.create_api_key` (managers, shown once, stored as a SHA-256 hash) and
+  `app.revoke_api_key`. `app.intake_deal(key, …)` takes a deal for the key's dealership only, valid 2
+  hours. The portal serves it as `POST /api/v1/deals`; the brain reads unexpired deals by id when a
+  call starts with `deal_id`.
+- **Maintenance:** `npm run maintain [stale hours]`, run on a schedule (e.g. hourly) as the owner.
+  - Calls with no end after 3 hours are closed as `abandoned`.
+  - Deals a day past expiry are deleted.
+  - Transcripts older than the dealership's `retention.transcripts_days` (default 365) are deleted.
+  - Recording rows past `retention_until` are deleted.
+- **Deletion on request:** `app.forget_call` (a signed-in manager, from the portal's call viewer) or
+  `npm run forget-call -- <call id>` (owner). The transcript, review text and recording are deleted;
+  the call's outcome row stays for counts and billing; the deletion is in the audit log.
+
 ## Use
 
 ```bash

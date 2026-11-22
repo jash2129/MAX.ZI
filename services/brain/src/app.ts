@@ -15,7 +15,7 @@ import { loadSession, saveSession, sharedStoreEnabled } from "../../../tavus-ava
 
 import { toPanelEvents } from "./panels.ts";
 import { noRecorder, type CallRecorder } from "./recorder.ts";
-import { ID_PATTERN, type ConfigSource, type DealershipConfig } from "./tenants.ts";
+import { ID_PATTERN, type ConfigSource, type DealSource, type DealershipConfig } from "./tenants.ts";
 
 /**
  * Max's brain as a service (PRD "Conversation brain" > Interface). Stateless between requests: each
@@ -38,6 +38,8 @@ export interface BrainOptions {
   now?: () => number;
   /** Call records (PgCallRecorder with the control plane; none with file config) */
   recorder?: CallRecorder;
+  /** Deals from the dealership's system (intake API), by deal_id on POST /calls */
+  deals?: DealSource;
 }
 
 /** Said when the controller itself throws: never silence (PRD rule 8). */
@@ -171,12 +173,22 @@ export function createBrain(opts: BrainOptions) {
 
   async function startCall(body: Json): Promise<Response> {
     const { key, dealership } = await callOf(body);
+    // A deal from the dealership's system: its vehicle replaces the default. An unknown, expired or
+    // other dealership's deal is refused (never a call about the wrong car).
+    let deal: Json | undefined = body.deal as Json | undefined;
+    let dealId: string | null = null;
+    if (typeof body.deal_id === "string" && body.deal_id) {
+      const found = opts.deals ? await opts.deals.get(dealership.id, body.deal_id) : null;
+      if (!found) throw new HttpError(404, "unknown or expired deal");
+      dealId = found.id;
+      deal = { vehicle_year: found.vehicle.year, vehicle_make: found.vehicle.make, vehicle_model: found.vehicle.model };
+    }
     return withCallLock(key, async () => {
       await loadSession(key);
       const resumed = activeStates.has(key);
-      const state = getOrCreateCallState(key, dealConfigFor(dealership, body.deal));
+      const state = getOrCreateCallState(key, dealConfigFor(dealership, deal));
       await saveSession(key);
-      if (!resumed) recorder.started(key, dealership.id, dealership.versions ?? null);
+      if (!resumed) recorder.started(key, dealership.id, dealership.versions ?? null, dealId);
       return json({ text: state.last_spoken_text, beat: state.current_beat, panels: [], resumed, max_display_name: dealership.max_display_name, speech_keyterms: dealership.speech_keyterms, versions: dealership.versions ?? null });
     });
   }

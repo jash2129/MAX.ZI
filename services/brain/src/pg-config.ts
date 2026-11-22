@@ -5,7 +5,24 @@ import { loadLiveConfig, type LiveDealershipConfig } from "../../control-plane/s
 
 import { isValidLadder } from "../../../tavus-avatar/src/lib/price-ladder.ts";
 
-import { type ConfigSource, type DealershipConfig } from "./tenants.ts";
+import { asService } from "../../control-plane/src/db.ts";
+
+import { type ConfigSource, type Deal, type DealSource, type DealershipConfig } from "./tenants.ts";
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Deals from the intake API: only unexpired ones (row-level security), only the asked dealership's */
+export class PostgresDealSource implements DealSource {
+  constructor(private readonly db: Db) {}
+
+  async get(dealershipId: string, dealId: string): Promise<Deal | null> {
+    if (!UUID.test(dealId)) return null;
+    return asService(this.db, "brain_service", async (tx) => {
+      const r = await tx.query<any>("select id, vehicle, customer_first_name from deal where id = $1 and dealership_id = $2", [dealId, dealershipId]);
+      return r.rows[0] ? { id: r.rows[0].id, vehicle: r.rows[0].vehicle ?? {}, customer_first_name: r.rows[0].customer_first_name } : null;
+    });
+  }
+}
 
 /**
  * Dealership config from the control plane (Postgres), read as brain_service: the database only ever

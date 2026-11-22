@@ -10,7 +10,9 @@
     "migrate": "tsx src/cli.ts migrate",
     "seed-demo": "tsx src/cli.ts seed-demo",
     "service-login": "tsx src/cli.ts service-login",
-    "invite": "tsx src/cli.ts invite"
+    "invite": "tsx src/cli.ts invite",
+    "maintain": "tsx src/cli.ts maintain",
+    "forget-call": "tsx src/cli.ts forget-call"
   },
   "engines": {
     "node": ">=20"

@@ -4,7 +4,7 @@ import { Readable } from "node:stream";
 
 import { createBrain } from "./app.ts";
 import type { CallRecorder } from "./recorder.ts";
-import { DealershipRegistry, type ConfigSource } from "./tenants.ts";
+import { DealershipRegistry, type ConfigSource, type DealSource } from "./tenants.ts";
 
 // Local development: .env.local (written by `npm run service-login` in control-plane). Real env vars win.
 // BRAIN_ENV_FILE=off: never (tests, which must not reach a real database).
@@ -12,25 +12,26 @@ const localEnv = new URL("../.env.local", import.meta.url);
 if (process.env.NODE_ENV !== "production" && process.env.BRAIN_ENV_FILE !== "off" && existsSync(localEnv)) process.loadEnvFile(localEnv);
 
 // Always-on process (Fly.io / Render / Railway): live calls need it, serverless functions do not fit.
-async function configSource(): Promise<{ registry: ConfigSource; recorder?: CallRecorder }> {
+async function configSource(): Promise<{ registry: ConfigSource; recorder?: CallRecorder; deals?: DealSource }> {
   const url = process.env.DATABASE_URL?.trim();
   if (!url) return { registry: DealershipRegistry.fromDirectory(process.env.DEALERSHIP_CONFIG_DIR || undefined) };
   // The control plane. This login must be a member of the brain_service role (and nothing more):
   //   create role brain_login login password '...' in role brain_service;
-  const [{ default: pg }, { fromPgPool, strictTls }, { PostgresConfigSource }, { PgCallRecorder }] = await Promise.all([
+  const [{ default: pg }, { fromPgPool, strictTls }, { PostgresConfigSource, PostgresDealSource }, { PgCallRecorder }] = await Promise.all([
     import("pg"),
     import("../../control-plane/src/db.ts"),
     import("./pg-config.ts"),
     import("./recorder.ts"),
   ]);
   const db = fromPgPool(new pg.Pool({ connectionString: strictTls(url), max: 5 }));
-  return { registry: new PostgresConfigSource(db), recorder: new PgCallRecorder(db) };
+  return { registry: new PostgresConfigSource(db), recorder: new PgCallRecorder(db), deals: new PostgresDealSource(db) };
 }
 
-const { registry, recorder } = await configSource();
+const { registry, recorder, deals } = await configSource();
 const handle = createBrain({
   registry,
   recorder,
+  deals,
   token: process.env.BRAIN_TOKEN?.trim() || undefined,
   production: process.env.NODE_ENV === "production",
 });

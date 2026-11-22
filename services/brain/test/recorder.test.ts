@@ -172,3 +172,24 @@ describe("a failing webhook and a failing database never affect the call", () =>
     expect(f.fallback).toBeUndefined();
   });
 });
+
+describe("calls from the deal intake API", () => {
+  it("a call started with a deal_id uses the deal's vehicle and records the deal; unknown or other dealerships' deals are refused", async () => {
+    const { getOrCreateCallState } = await import("../../../tavus-avatar/src/lib/beat-controller.ts");
+    const { PostgresDealSource } = await import("../src/pg-config");
+    const key = (await asUser(db, owner, async (tx) => (await tx.query<{ k: string }>("select app.create_api_key('demo-mazda', 'test') as k")).rows[0].k));
+    const [deal] = (await db.query<any>("select * from app.intake_deal($1, 'DEAL-7', $2, 'Sam')", [key, JSON.stringify({ year: "2027", make: "Mazda", model: "CX-50" })])).rows;
+    const b = createBrain({ registry: new PostgresConfigSource(db, 0), recorder, deals: new PostgresDealSource(db) });
+    const call = (body: unknown) => b(new Request("http://brain/calls", { method: "POST", body: JSON.stringify(body) }));
+
+    expect((await call({ dealership_id: "demo-mazda", call_id: "deal-1", deal_id: deal.deal_id })).status).toBe(200);
+    const cfg = getOrCreateCallState("demo-mazda:deal-1").dealConfig;
+    expect([cfg.vehicle_year, cfg.vehicle_make, cfg.vehicle_model]).toEqual(["2027", "Mazda", "CX-50"]);
+    await recorder.flush();
+    expect((await records("select deal_id from call where id = 'demo-mazda:deal-1'"))[0].deal_id).toBe(deal.deal_id);
+
+    expect((await call({ dealership_id: "demo-mazda", call_id: "deal-2", deal_id: "00000000-0000-4000-8000-000000000000" })).status).toBe(404);
+    expect((await call({ dealership_id: "demo-hyundai", call_id: "deal-3", deal_id: deal.deal_id })).status).toBe(404);
+    expect((await call({ dealership_id: "demo-mazda", call_id: "deal-4", deal_id: "not-a-uuid" })).status).toBe(404);
+  });
+});

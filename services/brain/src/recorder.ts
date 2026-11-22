@@ -40,7 +40,7 @@ export interface EndRecord {
 }
 
 export interface CallRecorder {
-  started(key: string, dealershipId: string, versions: { script: string | null; price: string | null; kb: string | null } | null): void;
+  started(key: string, dealershipId: string, versions: { script: string | null; price: string | null; kb: string | null } | null, dealId?: string | null): void;
   turn(key: string, dealershipId: string, t: TurnRecord): void;
   committed(key: string, turnId: number, heard: boolean, fractionHeard: number, timings?: Record<string, unknown>): void;
   ended(key: string, dealershipId: string, e: EndRecord): void;
@@ -95,12 +95,12 @@ export class PgCallRecorder implements CallRecorder {
     });
   }
 
-  started(key: string, dealershipId: string, versions: { script: string | null; price: string | null; kb: string | null } | null): void {
+  started(key: string, dealershipId: string, versions: { script: string | null; price: string | null; kb: string | null } | null, dealId: string | null = null): void {
     this.enqueue(key, "started", async (tx) => {
       await tx.query(
-        `insert into call (id, dealership_id, script_version_id, price_version_id, kb_version_id)
-         values ($1, $2, $3, $4, $5) on conflict (id) do nothing`,
-        [key, dealershipId, versions?.script ?? null, versions?.price ?? null, versions?.kb ?? null]
+        `insert into call (id, dealership_id, script_version_id, price_version_id, kb_version_id, deal_id)
+         values ($1, $2, $3, $4, $5, $6) on conflict (id) do nothing`,
+        [key, dealershipId, versions?.script ?? null, versions?.price ?? null, versions?.kb ?? null, dealId]
       );
     });
   }

@@ -46,8 +46,17 @@ browser ──(Daily room: mic in; avatar video, Max's audio, panel events out)�
     PRD's compliance checks), usage minutes, and a signed webhook to the dealership.
   - In the portal: a 30-day dashboard (calls, completion, price reached, take rate, average rate,
     latency median and 90th percentile, compliance failures), the calls list, and the call inspector.
-  - Not yet: recordings, the AI review (summary and sentiment), and closing calls a worker never
-    ended.
+  - Not yet: recordings and the AI review (summary and sentiment).
+- **Phase 5, onboarding and integrations:**
+  - Dealerships are created in the portal without code: drafts are copied from a template, then go
+    through the gate and approval.
+  - Deal intake API (`POST /api/v1/deals`, per-dealership keys that are hashed, shown once and
+    revocable). The voice worker and brain start a call from a `deal_id`; an unknown, expired or other
+    dealership's deal is refused.
+  - Maintenance: abandoned calls closed, expired deals deleted, transcript and recording retention per
+    dealership. Deletion on request from the call viewer.
+  - Next: deploying to production (migrations 007-009, logins, hosting), recordings, and the first
+    live call to measure latency. These need your accounts and keys.
   - Open question (yours to decide): a lowball under the floor ("can you do two dollars?") gets the
     floor at once, skipping steps. That's the demo's existing TXM-approved behavior; read strictly,
     the PRD's "one step down per refusal" would forbid it.

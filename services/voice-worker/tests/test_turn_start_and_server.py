@@ -152,3 +152,17 @@ def test_auth_and_capacity():
 def test_production_without_token_fails_closed():
     with app_with(lambda cfg: asyncio.sleep(0), worker_token=None, production=True) as client:
         assert client.post("/calls", json={"dealership_id": "demo-mazda"}).status_code == 503
+
+
+def test_start_call_passes_a_deal_id_and_rejects_a_malformed_one():
+    started = []
+
+    async def runner(cfg):
+        started.append(cfg)
+
+    with app_with(runner) as client:
+        ok = {"Authorization": "Bearer w-token"}
+        deal = "0b9f3c1e-2a4d-4c8e-9f00-1234567890ab"
+        assert client.post("/calls", json={"dealership_id": "demo-mazda", "deal_id": deal}, headers=ok).status_code == 200
+        assert client.post("/calls", json={"dealership_id": "demo-mazda", "deal_id": "../../etc"}, headers=ok).status_code == 400
+    assert started[0].deal_id == deal

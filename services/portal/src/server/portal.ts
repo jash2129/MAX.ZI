@@ -550,3 +550,94 @@ export async function setWebhook(db: Db, userId: string, dealershipId: string, u
 export async function removeWebhook(db: Db, userId: string, dealershipId: string): Promise<void> {
   await run(db, userId, (tx) => tx.query("delete from dealership_webhook where dealership_id = $1", [dealershipId]));
 }
+
+// ---------------------------------------------------------------------------------------------------
+// Onboarding, API keys, deletion on request (control-plane migration 009)
+// ---------------------------------------------------------------------------------------------------
+
+/** Who may create dealerships: the platform owner (anywhere) and agency admins (in their agency) */
+export async function creatableAgencies(db: Db, userId: string): Promise<{ owner: boolean; agencies: Array<{ id: string; name: string }> }> {
+  return run(db, userId, async (tx) => {
+    const owner = (await tx.query<{ o: boolean }>("select app.is_platform_owner() as o")).rows[0].o;
+    const agencies = (
+      await tx.query<{ id: string; name: string }>(
+        `select a.id, a.name from agency a
+          where app.is_platform_owner() or exists (select 1 from membership m where m.user_id = $1 and m.agency_id = a.id and m.role = 'agency_admin')
+          order by a.name`,
+        [userId]
+      )
+    ).rows;
+    return { owner, agencies };
+  });
+}
+
+export interface NewDealership {
+  id: string;
+  name: string;
+  agency: string | null;
+  template: string;
+  vehicle: { year: string; make: string; model: string };
+  keyterms: string[];
+}
+
+/** A new dealership with draft versions copied from the template (nothing live until approved) */
+export async function createDealership(db: Db, userId: string, d: NewDealership): Promise<void> {
+  if (!/^[a-z0-9][a-z0-9_-]{1,63}$/.test(d.id)) throw new PortalError("The id must be lower-case letters, digits, - or _ (it appears in call links).");
+  if (!d.name.trim()) throw new PortalError("The dealership needs a name.");
+  await run(db, userId, (tx) =>
+    tx.query("select app.create_dealership($1, $2, $3, $4, $5, $6)", [d.id, d.name.trim(), d.agency, d.template, JSON.stringify(d.vehicle), d.keyterms])
+  ).catch((err) => {
+    if (err instanceof PortalError && /duplicate key|already exists/.test(err.message)) throw new PortalError(`A dealership with the id "${d.id}" already exists.`);
+    throw err;
+  });
+}
+
+export async function listApiKeys(db: Db, userId: string, dealershipId: string) {
+  return run(db, userId, async (tx) => {
+    const r = await tx.query<any>(
+      `select k.id, k.prefix, k.label, k.created_at, k.last_used_at, k.revoked_at, u.email as created_by
+         from api_key k left join app_user u on u.id = k.created_by
+        where k.dealership_id = $1 order by k.created_at desc`,
+      [dealershipId]
+    );
+    return r.rows as Array<{ id: string; prefix: string; label: string; created_at: string; last_used_at: string | null; revoked_at: string | null; created_by: string | null }>;
+  });
+}
+
+/** A new intake API key, returned once (only its hash is stored) */
+export async function createApiKey(db: Db, userId: string, dealershipId: string, label: string): Promise<string> {
+  return run(db, userId, async (tx) => (await tx.query<{ k: string }>("select app.create_api_key($1, $2) as k", [dealershipId, label.trim().slice(0, 60)])).rows[0].k);
+}
+
+export async function revokeApiKey(db: Db, userId: string, keyId: string): Promise<void> {
+  await run(db, userId, (tx) => tx.query("select app.revoke_api_key($1)", [keyId]));
+}
+
+/** Deletion on request: the call's transcript, review text and recording; its outcome row stays */
+export async function forgetCall(db: Db, userId: string, callId: string): Promise<void> {
+  await run(db, userId, (tx) => tx.query("select app.forget_call($1)", [callId]));
+}
+
+export interface DealInput {
+  external_ref?: unknown;
+  vehicle?: { year?: unknown; make?: unknown; model?: unknown };
+  customer_first_name?: unknown;
+}
+
+/**
+ * The deal intake API (no signed-in person: the API key decides the dealership). Returns null for a
+ * wrong or revoked key.
+ */
+export async function intakeDeal(db: Db, apiKey: string, input: DealInput): Promise<{ deal_id: string; dealership_id: string; expires_at: string } | null> {
+  if (!/^mxk_[0-9a-f]{64}$/.test(apiKey)) return null;
+  const text = (v: unknown, max: number) => (typeof v === "string" ? v.trim().slice(0, max) : "");
+  const vehicle = { year: text(input.vehicle?.year, 4), make: text(input.vehicle?.make, 40), model: text(input.vehicle?.model, 60) };
+  if (!/^\d{4}$/.test(vehicle.year) || !vehicle.make || !vehicle.model) throw new PortalError("vehicle needs year (4 digits), make and model");
+  try {
+    const r = await db.query<any>("select * from app.intake_deal($1, $2, $3, $4)", [apiKey, text(input.external_ref, 80) || null, JSON.stringify(vehicle), text(input.customer_first_name, 60) || null]);
+    return r.rows[0];
+  } catch (err) {
+    if (/invalid API key/.test(String((err as Error)?.message))) return null;
+    throw err;
+  }
+}

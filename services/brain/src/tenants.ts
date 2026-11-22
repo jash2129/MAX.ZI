@@ -25,6 +25,18 @@ export interface DealershipConfig {
   versions?: { script: string | null; price: string | null; kb: string | null };
 }
 
+/** A deal from the dealership's system (control plane intake API), unexpired */
+export interface Deal {
+  id: string;
+  vehicle: { year?: string; make?: string; model?: string };
+  customer_first_name: string | null;
+}
+
+/** Deals by id, for one dealership (none with file config) */
+export interface DealSource {
+  get(dealershipId: string, dealId: string): Promise<Deal | null>;
+}
+
 /** Where dealership config comes from: JSON files (dev) or the control plane's Postgres. */
 export interface ConfigSource {
   readonly kind: "files" | "postgres";

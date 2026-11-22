@@ -199,6 +199,45 @@ try {
     await expectText(page, "700 ms", "the call detail shows the stage timings");
     await page.goto(`${base}/d/demo-mazda`);
     await expectText(page, "Took the package", "the dashboard shows the call");
+
+    // deletion on request, from the call inspector
+    await page.goto(callsPage);
+    await Promise.all([page.waitForURL(/\/calls\/.+/, { timeout: WAIT }), page.locator("table a").first().click()]);
+    await page.fill("#confirm", "DELETE");
+    await submit(page, "text=Delete the content", "transcript, review text and recording were deleted", "a manager deletes a call's content on request");
+  }
+
+  // 8b. onboarding without code, and the deal intake API
+  await page.goto(`${base}/`);
+  await page.fill("#name", "Kia of Austin");
+  await page.fill("#id", "kia-austin");
+  await page.selectOption("#template", "demo-mazda");
+  await page.fill("input[name=vehicle_year]", "2026");
+  await page.fill("input[name=vehicle_make]", "Kia");
+  await page.fill("input[name=vehicle_model]", "Sportage");
+  await submit(page, "text=Create dealership", "Dealership created with draft versions", "a new dealership is created from a template");
+  await expectText(page, "Not taking calls yet", "it takes no calls until its versions are approved");
+  await page.goto(`${base}/d/demo-mazda`);
+  await page.fill("input[name=label]", "e2e DMS");
+  await submit(page, "text=Create API key", "New API key", "an intake API key is created and shown once");
+  const apiKey = (await page.locator("#api-keys + .notice .mono").innerText()).trim();
+  if (!/^mxk_[0-9a-f]{64}$/.test(apiKey)) fail("API key format", apiKey.slice(0, 8));
+  const intake = await fetch(`${base}/api/v1/deals`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+    body: JSON.stringify({ external_ref: "E2E-1", vehicle: { year: "2027", make: "Mazda", model: "CX-50" }, customer_first_name: "Sam" }),
+  });
+  const deal = await intake.json();
+  if (intake.status !== 201 || deal.dealership_id !== "demo-mazda") fail("deal intake", `${intake.status} ${JSON.stringify(deal).slice(0, 120)}`);
+  step("a deal posted with the key is taken for its dealership (HTTP 201)");
+  const bad = await fetch(`${base}/api/v1/deals`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer mxk_" + "0".repeat(64) }, body: "{}" });
+  if (bad.status !== 401 && bad.status !== 400) fail("intake with a bad key", `HTTP ${bad.status}`);
+  step(`intake with a wrong key is refused (HTTP ${bad.status})`);
+  if (process.env.E2E_BRAIN_URL) {
+    const auth = { "Content-Type": "application/json", Authorization: `Bearer ${process.env.E2E_BRAIN_TOKEN ?? ""}` };
+    const r = await fetch(`${process.env.E2E_BRAIN_URL}/calls`, { method: "POST", headers: auth, body: JSON.stringify({ dealership_id: "demo-mazda", call_id: `deal-${Date.now().toString(36)}`, deal_id: deal.deal_id }) });
+    if (r.status !== 200) fail("a call from the deal", `HTTP ${r.status}`);
+    step("the brain starts a call from the deal");
   }
 
   // 9. attacks on sign-up without an invite (straight at the auth API, as an attacker would)
