@@ -53,9 +53,29 @@ All enforced in the database:
 ```bash
 npm install
 npm test                                   # PGlite (real Postgres 18 in WebAssembly): no server needed
-DATABASE_URL=postgres://owner@host/db npm run migrate
-DATABASE_URL=… npm run seed-demo -- ../../testing-skill/reports/sim-batch-2026-11-21T06-26-38-028Z.json
 ```
+
+### On Neon (project MAX.ZI, branch `production`)
+
+```bash
+neon deploy                                # applies neon.ts, writes DATABASE_URL(_UNPOOLED) to .env.local
+npm run migrate                            # over DATABASE_URL_UNPOOLED (DDL must not go through the pooler)
+npm run seed-demo -- ../../testing-skill/reports/sim-batch-2026-11-21T06-26-38-028Z.json
+npm run service-login -- brain_service ../brain/.env.local   # the brain's own login (pooled endpoint)
+```
+
+`service-login` creates (or, run again, rotates) `brain_login` as a member of `brain_service` only,
+with a random password, and writes its connection string into the target env file without printing
+it. Use `worker_service` / `gate_service` the same way. Services use the pooled endpoint: every role
+switch is `SET LOCAL` inside a transaction, which is safe with Neon's transaction-mode pooler.
+Connections use `sslmode=verify-full`. `.env.local` and `.neon` are git-ignored.
+
+Driver: `pg` (node-postgres) over TCP, because the brain and the CLI are long-running Node
+processes. Neon's serverless driver is meant for edge and serverless functions.
+
+Managed Postgres note: the migrating owner is not a superuser there. Migrations 002 and 003 let it
+switch to the service roles for seeding (Postgres 16+ gives a role's creator admin rights without
+`SET`).
 
 `seed-demo` loads the two demo dealerships with the demo's current beats, disclosure, knowledge base
 and ladder as approved version 1. Its gate result is computed from the simulator report given, which

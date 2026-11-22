@@ -1,8 +1,13 @@
+import { existsSync } from "node:fs";
 import { createServer, type IncomingMessage } from "node:http";
 import { Readable } from "node:stream";
 
 import { createBrain } from "./app.ts";
 import { DealershipRegistry, type ConfigSource } from "./tenants.ts";
+
+// Local development: .env.local (written by `npm run service-login` in control-plane). Real env vars win.
+const localEnv = new URL("../.env.local", import.meta.url);
+if (process.env.NODE_ENV !== "production" && existsSync(localEnv)) process.loadEnvFile(localEnv);
 
 // Always-on process (Fly.io / Render / Railway): live calls need it, serverless functions do not fit.
 async function configSource(): Promise<ConfigSource> {
@@ -10,12 +15,12 @@ async function configSource(): Promise<ConfigSource> {
   if (!url) return DealershipRegistry.fromDirectory(process.env.DEALERSHIP_CONFIG_DIR || undefined);
   // The control plane. This login must be a member of the brain_service role (and nothing more):
   //   create role brain_login login password '...' in role brain_service;
-  const [{ default: pg }, { fromPgPool }, { PostgresConfigSource }] = await Promise.all([
+  const [{ default: pg }, { fromPgPool, strictTls }, { PostgresConfigSource }] = await Promise.all([
     import("pg"),
     import("../../control-plane/src/db.ts"),
     import("./pg-config.ts"),
   ]);
-  return new PostgresConfigSource(fromPgPool(new pg.Pool({ connectionString: url, max: 5 })));
+  return new PostgresConfigSource(fromPgPool(new pg.Pool({ connectionString: strictTls(url), max: 5 })));
 }
 
 const registry = await configSource();

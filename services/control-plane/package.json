@@ -8,12 +8,15 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "migrate": "tsx src/cli.ts migrate",
-    "seed-demo": "tsx src/cli.ts seed-demo"
+    "seed-demo": "tsx src/cli.ts seed-demo",
+    "service-login": "tsx src/cli.ts service-login"
   },
   "engines": {
     "node": ">=20"
   },
   "dependencies": {
+    "@neon/config": "^1.14.6",
+    "@neon/env": "^2.1.9",
     "pg": "^8.23.1"
   },
   "devDependencies": {

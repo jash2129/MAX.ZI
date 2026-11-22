@@ -63,6 +63,14 @@ export async function migrate(db: Db, dir = MIGRATIONS_DIR): Promise<string[]> {
   return applied;
 }
 
+/**
+ * node-postgres treats sslmode=require (what Neon's connection strings carry) as full certificate
+ * verification today and warns it will change; ask for verify-full explicitly so TLS stays strict.
+ */
+export function strictTls(url: string): string {
+  return url.replace(/([?&])sslmode=(require|prefer|verify-ca)\b/, "$1sslmode=verify-full");
+}
+
 /** node-postgres adapter (production). */
 export function fromPgPool(pool: {
   query: (sql: string, params?: unknown[]) => Promise<{ rows: any[] }>;
