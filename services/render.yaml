@@ -98,6 +98,18 @@ services:
         sync: false
       - key: PORTAL_URL
         sync: false
+      # The customer call page (/c/<dealership>?deal=...) starts calls through the worker's internal
+      # address, with the worker's token (it never reaches the browser)
+      - key: WORKER_HOSTPORT
+        fromService:
+          type: web
+          name: max-voice-worker
+          property: hostport
+      - key: WORKER_TOKEN
+        fromService:
+          type: web
+          name: max-voice-worker
+          envVarKey: WORKER_TOKEN
       # Optional: Google / Microsoft sign-in for invited emails
       - key: GOOGLE_CLIENT_ID
         sync: false

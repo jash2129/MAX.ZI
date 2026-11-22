@@ -84,10 +84,13 @@ def noise_filter():
         return None
 
 
-async def run_call(cfg: CallConfig) -> None:
+async def run_call(cfg: CallConfig, brain: BrainClient | None = None, opening: dict | None = None) -> None:
+    """One call. server.py starts the call in the brain first (so a refused call never gets a room) and
+    passes the brain and its opening line; without them, they are made here."""
     log = logger.bind(call_id=cfg.call_id, dealership_id=cfg.dealership_id)
-    brain = BrainClient(cfg.brain_url, cfg.dealership_id, cfg.call_id, token=cfg.brain_token)
-    opening = await brain.start(cfg.deal, cfg.deal_id)  # raises BrainError (e.g. unknown deal): the call is not started
+    if brain is None or opening is None:
+        brain = BrainClient(cfg.brain_url, cfg.dealership_id, cfg.call_id, token=cfg.brain_token)
+        opening = await brain.start(cfg.deal, cfg.deal_id)  # raises BrainError: the call is not started
 
     async with aiohttp.ClientSession() as http:
         transport = DailyTransport(

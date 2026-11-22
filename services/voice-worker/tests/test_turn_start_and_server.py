@@ -113,14 +113,36 @@ class FakeRooms:
         return "https://x.daily.co/room", "bot-token", "customer-token"
 
 
-def app_with(runner, **kw):
-    return TestClient(create_app(settings(**kw), rooms=FakeRooms(), runner=runner))
+class FakeBrain:
+    """The brain, as the worker's /calls sees it: start() accepts, or refuses like the real one"""
+
+    def __init__(self, refuse: str | None = None):
+        self.refuse = refuse
+        self.ended = None
+
+    async def start(self, deal, deal_id=None):
+        from max_worker.brain_client import BrainError
+
+        if self.refuse:
+            raise BrainError(f"/calls: {self.refuse}")
+        return {"text": "Can you hear and see me alright?", "beat": 0}
+
+    async def end(self, reason="ended"):
+        self.ended = reason
+
+    async def aclose(self):
+        pass
+
+
+def app_with(runner, brain=None, rooms=None, **kw):
+    fake = brain or FakeBrain()
+    return TestClient(create_app(settings(**kw), rooms=rooms or FakeRooms(), runner=runner, brain_factory=lambda d, c: fake))
 
 
 def test_start_call_returns_room_and_customer_token_only():
     started = []
 
-    async def runner(cfg):
+    async def runner(cfg, *_):
         started.append(cfg)
         await asyncio.sleep(0)
 
@@ -137,7 +159,7 @@ def test_start_call_returns_room_and_customer_token_only():
 def test_auth_and_capacity():
     gate = asyncio.Event()
 
-    async def runner(cfg):
+    async def runner(cfg, *_):
         await gate.wait()
 
     with app_with(runner) as client:
@@ -150,14 +172,14 @@ def test_auth_and_capacity():
 
 
 def test_production_without_token_fails_closed():
-    with app_with(lambda cfg: asyncio.sleep(0), worker_token=None, production=True) as client:
+    with app_with(lambda *a: asyncio.sleep(0), worker_token=None, production=True) as client:
         assert client.post("/calls", json={"dealership_id": "demo-mazda"}).status_code == 503
 
 
 def test_start_call_passes_a_deal_id_and_rejects_a_malformed_one():
     started = []
 
-    async def runner(cfg):
+    async def runner(cfg, *_):
         started.append(cfg)
 
     with app_with(runner) as client:
@@ -180,3 +202,35 @@ def test_brain_url_from_render_hostport(monkeypatch):
     monkeypatch.setenv("BRAIN_HOSTPORT", "http://evil/x")
     with pytest.raises(RuntimeError):
         brain_url_from_env()
+
+
+
+def test_a_refused_call_gets_no_room():
+    created = []
+
+    class CountingRooms(FakeRooms):
+        async def create(self):
+            created.append(1)
+            return await super().create()
+
+    async def runner(*_):
+        pass
+
+    ok = {"Authorization": "Bearer w-token"}
+    with app_with(runner, brain=FakeBrain(refuse="HTTP 404 unknown or expired deal"), rooms=CountingRooms()) as client:
+        r = client.post("/calls", json={"dealership_id": "demo-mazda"}, headers=ok)
+        assert r.status_code == 404 and "not taking calls" in r.json()["detail"]
+    with app_with(runner, brain=FakeBrain(refuse="HTTP 500 boom"), rooms=CountingRooms()) as client:
+        assert client.post("/calls", json={"dealership_id": "demo-mazda"}, headers=ok).status_code == 502
+    assert created == []
+
+
+def test_the_runner_gets_the_started_brain_and_opening_line():
+    got = []
+
+    async def runner(cfg, brain, opening):
+        got.append(opening)
+
+    with app_with(runner) as client:
+        assert client.post("/calls", json={"dealership_id": "demo-mazda"}, headers={"Authorization": "Bearer w-token"}).status_code == 200
+    assert got == [{"text": "Can you hear and see me alright?", "beat": 0}]

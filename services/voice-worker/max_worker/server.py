@@ -122,11 +122,13 @@ class RoomProvider:
             return room.url, bot_token, customer_token
 
 
-def create_app(settings: Settings, rooms: RoomProvider | None = None, runner=None) -> FastAPI:
+def create_app(settings: Settings, rooms: RoomProvider | None = None, runner=None, brain_factory=None) -> FastAPI:
     from .bot import CallConfig, run_call
+    from .brain_client import BrainClient, BrainError
 
     rooms = rooms or RoomProvider(settings.daily_api_key)
     run = runner or run_call
+    make_brain = brain_factory or (lambda dealership_id, call_id: BrainClient(settings.brain_url, dealership_id, call_id, token=settings.brain_token))
     app = FastAPI(title="Max voice worker")
     active: dict[str, asyncio.Task] = {}
 
@@ -154,7 +156,24 @@ def create_app(settings: Settings, rooms: RoomProvider | None = None, runner=Non
             # The load balancer / caller tries another worker
             raise HTTPException(503, "worker at capacity")
         call_id = f"c_{secrets.token_hex(8)}"
-        room_url, bot_token, customer_token = await rooms.create()
+        deal = {k: str(v)[:60] for k, v in body.deal.items() if k in ("vehicle_year", "vehicle_make", "vehicle_model")}
+        # The brain first: an unknown dealership, a dealership not taking calls, or a bad deal fails here,
+        # before any room (or cost) exists
+        brain = make_brain(body.dealership_id, call_id)
+        try:
+            opening = await brain.start(deal, body.deal_id)
+        except BrainError as e:
+            await brain.aclose()
+            if "HTTP 404" in str(e):
+                raise HTTPException(404, "this dealership is not taking calls, or the deal link is not valid") from None
+            logger.error(f"brain refused call {call_id}: {e}")
+            raise HTTPException(502, "the call could not be started") from None
+        try:
+            room_url, bot_token, customer_token = await rooms.create()
+        except Exception:
+            await brain.end("room_failed")
+            await brain.aclose()
+            raise
         cfg = CallConfig(
             call_id=call_id,
             dealership_id=body.dealership_id,
@@ -167,13 +186,13 @@ def create_app(settings: Settings, rooms: RoomProvider | None = None, runner=Non
             avatar_id=settings.avatar_id,
             avatar_sandbox=settings.avatar_sandbox,
             tts_voice=settings.tts_voice,
-            deal={k: str(v)[:60] for k, v in body.deal.items() if k in ("vehicle_year", "vehicle_make", "vehicle_model")},
+            deal=deal,
             deal_id=body.deal_id,
         )
 
         async def guarded():
             try:
-                await run(cfg)
+                await run(cfg, brain, opening)
             except Exception as e:  # noqa: BLE001 - one call failing never takes the worker down
                 logger.exception(f"call {call_id} failed: {e}")
             finally:

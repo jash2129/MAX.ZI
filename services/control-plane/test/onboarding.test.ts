@@ -151,3 +151,32 @@ describe("retention and deletion", () => {
     expect((await db.query("select * from turn where call_id = 'keep-call'")).rows).toEqual([]);
   });
 });
+
+describe("call page (migration 010)", () => {
+  async function newDeal(dealership = "demo-mazda") {
+    const key = (await as("owner", "select app.create_api_key($1, 'page') as k", [dealership]))[0].k;
+    return (await db.query<any>("select * from app.intake_deal($1, 'P-1', $2, 'Ana')", [key, JSON.stringify({ year: "2026", make: "Mazda", model: "CX-30" })])).rows[0].deal_id as string;
+  }
+
+  it("a deal link starts at most 3 calls, only for its own dealership", async () => {
+    const id = await newDeal();
+    expect((await db.query<any>("select * from app.claim_deal($1, 'demo-hyundai')", [id])).rows).toEqual([]);
+    for (let i = 0; i < 3; i++) {
+      expect((await db.query<any>("select * from app.claim_deal($1, 'demo-mazda')", [id])).rows).toEqual([{ vehicle: { year: "2026", make: "Mazda", model: "CX-30" }, customer_first_name: "Ana" }]);
+    }
+    expect((await db.query<any>("select * from app.claim_deal($1, 'demo-mazda')", [id])).rows).toEqual([]);
+  });
+
+  it("an expired deal starts nothing", async () => {
+    const id = await newDeal();
+    await db.query("update deal set expires_at = now() - interval '1 minute' where id = $1", [id]);
+    expect((await db.query<any>("select * from app.claim_deal($1, 'demo-mazda')", [id])).rows).toEqual([]);
+  });
+
+  it("the page's public details: ready only with all three versions live; unknown dealerships are null", async () => {
+    const page = (await db.query<any>("select app.call_page('demo-mazda') as p")).rows[0].p;
+    expect(page).toMatchObject({ id: "demo-mazda", name: "Mazda Dealership", max_display_name: "Max", ready: true, products: [] });
+    expect((await db.query<any>("select app.call_page('kia-north') as p")).rows[0].p.ready).toBe(false);
+    expect((await db.query<any>("select app.call_page('nope') as p")).rows[0].p).toBeNull();
+  });
+});

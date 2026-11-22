@@ -233,6 +233,23 @@ try {
   const bad = await fetch(`${base}/api/v1/deals`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer mxk_" + "0".repeat(64) }, body: "{}" });
   if (bad.status !== 401 && bad.status !== 400) fail("intake with a bad key", `HTTP ${bad.status}`);
   step(`intake with a wrong key is refused (HTTP ${bad.status})`);
+  // 8c. the customer's call page (no account; the deal link is the ticket)
+  const customer = await browser.newPage();
+  await customer.goto(`${base}/c/demo-mazda?deal=${deal.deal_id}`);
+  await expectText(customer, "is an AI finance assistant", "the call page says Max is an AI");
+  await expectText(customer, "This call is recorded", "the call page says the call is recorded");
+  await customer.click("text=Start the call");
+  // no voice worker in this test run: the customer gets a plain message, and the link is not used up
+  await expectText(customer, "Calls are not available right now", "without a voice worker the customer gets a plain message");
+  await customer.goto(`${base}/c/demo-mazda`);
+  await expectText(customer, "This link is not complete", "a link without a deal is refused");
+  await customer.goto(`${base}/c/kia-austin?deal=${deal.deal_id}`);
+  await expectText(customer, "is not taking calls right now", "a dealership not yet approved takes no calls");
+  const missing = await customer.goto(`${base}/c/no-such-dealer?deal=${deal.deal_id}`);
+  if (missing?.status() !== 404) fail("unknown dealership page", `HTTP ${missing?.status()}`);
+  step("an unknown dealership's page is not found (HTTP 404)");
+  await customer.close();
+
   if (process.env.E2E_BRAIN_URL) {
     const auth = { "Content-Type": "application/json", Authorization: `Bearer ${process.env.E2E_BRAIN_TOKEN ?? ""}` };
     const r = await fetch(`${process.env.E2E_BRAIN_URL}/calls`, { method: "POST", headers: auth, body: JSON.stringify({ dealership_id: "demo-mazda", call_id: `deal-${Date.now().toString(36)}`, deal_id: deal.deal_id }) });

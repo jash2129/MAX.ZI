@@ -23,6 +23,37 @@ and needs no AI keys. The result is stored with its source (`scripted suite v1`)
 in. It checks the rules applied to the dealership's content; the AI-persona simulator
 (`scripts/sim-batch.ts`) judges how natural the wording sounds and is not wired in yet.
 
+## The customer call page
+
+`/c/<dealership>?deal=<deal_id>` is the link or QR code the dealership sends the buyer. There is no
+account; the deal link is the ticket.
+
+1. The dealership's system posts the deal to `POST /api/v1/deals` and builds the link from the
+   returned `deal_id`. It is valid for 2 hours, and **at most 3 calls start from one link**
+   (reconnects), because every call costs money. Starts are also rate-limited per address.
+2. The page says that Max is an AI assistant and that the call is recorded. Opening the page uses
+   nothing up; only **Start** does.
+3. On Start, the portal's server checks the link, asks the voice worker for a room (`WORKER_URL` or
+   `WORKER_HOSTPORT`, plus `WORKER_TOKEN`, which never reaches the browser), and the browser joins
+   with its own room token.
+4. During the call, the page shows Max's video and voice, live captions, a progress bar, and the
+   panels the worker sends. If the avatar fails, a still image and "video unavailable" are shown, and
+   the voice goes on.
+
+**Panels.**
+
+| Panel | Shows |
+| --- | --- |
+| Price | Only the rate Max is saying now, never the ladder |
+| Summary | The vehicle, the package and the agreed rate |
+| Coverage, warranty and repair-cost panels | Titles, plus terms **only from the dealership's approved price version** |
+
+To give the coverage panels terms, add `products` to a price version: a list of
+`{ "key": "vsc" | "tire_wheel" | "maintenance" | "gap" | "warranty_terms" | "repair_costs", "title", "bullets": [...] }`.
+It goes through the gate and approval like any change. The demo's old `pricing.json` text is **not**
+used: it says "7-Year" bumper-to-bumper, while the approved script says ten years, and the screen and
+Max's voice must never disagree.
+
 ## Sign-in
 
 Better Auth, self-hosted in this app. Neon's managed auth has no two-factor yet; Neon suggests this
