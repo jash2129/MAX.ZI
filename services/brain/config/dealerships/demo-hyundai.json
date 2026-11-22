@@ -1,0 +1,8 @@
+{
+  "id": "demo-hyundai",
+  "name": "Hyundai of Dallas",
+  "max_display_name": "Max",
+  "default_vehicle": { "year": "2026", "make": "Hyundai", "model": "Tucson" },
+  "price_ladder": [4, 3.5, 3.25, 3],
+  "speech_keyterms": ["Hyundai", "Tucson", "Santa Fe", "Palisade", "GAP", "powertrain", "Dallas"]
+}

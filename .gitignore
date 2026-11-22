@@ -72,3 +72,8 @@ tavus-avatar/scratch/
 testing-skill/node_modules/
 testing-skill/__pycache__/
 __pycache__/
+
+# python
+.venv/
+__pycache__/
+*.pyc

@@ -1,0 +1,8 @@
+{
+  "id": "demo-mazda",
+  "name": "Mazda Dealership",
+  "max_display_name": "Max",
+  "default_vehicle": { "year": "2026", "make": "Mazda", "model": "CX five" },
+  "price_ladder": [4, 3.5, 3.25, 3],
+  "speech_keyterms": ["Mazda", "CX-5", "CX-50", "CX-90", "GAP", "powertrain", "bumper to bumper"]
+}

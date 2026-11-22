@@ -1,0 +1,24 @@
+{
+  "name": "max-brain",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Max's conversation brain as a stateless HTTP service: POST /calls, /turn (NDJSON stream), /commit, /reprompt. Runs the beat controller from ../../tavus-avatar/src/lib unchanged.",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch --conditions=react-server src/server.ts",
+    "start": "tsx --conditions=react-server src/server.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "tsx": "^4.20.6"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "typescript": "5.9.3",
+    "vitest": "^4.1.10"
+  }
+}
