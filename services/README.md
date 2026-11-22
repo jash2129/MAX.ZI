@@ -18,8 +18,13 @@ browser ──(Daily room: mic in; avatar video, Max's audio, panel events out)�
 
 Set up 2026-11-23:
 
-- **Migrations:** 001-009 applied.
-- **Snapshot:** taken before 007-009, as branch `pre-migration-2026-11-23` (kept until 2026-12-06).
+- **Migrations:** 001-010 applied (010, the call page, on 2026-11-23).
+- **Snapshots:** taken before 007-009, as branch `pre-migration-2026-11-23`, and before 010, as branch
+  `pre-migration-010-2026-11-23` (both kept until 2026-12-06).
+- **Call page checks, read-only with `portal_login`:** both demo dealerships are ready (no product
+  terms yet); unknown dealerships return nothing; claiming a deal that doesn't exist uses nothing.
+  Deals stay hidden from the portal login without a signed-in person (proved on the test branch,
+  which has deals: 1 there, 0 visible).
 - **Logins:** each is a member of its role only; none is a superuser or can bypass row-level security.
   - `brain_login` (`brain_service`): its connection string is in `brain/.env.local`.
   - `portal_login` (`app_user`, `gate_service`) and `auth_login` (`auth_service`, `search_path = auth`):
