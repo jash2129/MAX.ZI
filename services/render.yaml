@@ -29,6 +29,10 @@ services:
         generateValue: true  # shared with the voice worker below
       - key: DATABASE_URL     # brain_login's connection string (services/brain/.env.local)
         sync: false
+      # Free mode is the code's default now (free-ai.ts): the platform brain stays on the approved
+      # script until free mode is approved; set "free" to try it
+      - key: MAX_MODE
+        value: script
       # Optional AI switches (see the root CLAUDE.md): leave unset for approved lines word for word
       - key: XAI_API_KEY
         sync: false
