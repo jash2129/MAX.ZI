@@ -17,7 +17,7 @@
  *             retries a refused idea
  *   APPROVE   a person approves the result; nothing here changes what live calls use
  */
-import { checkFreePromptTemplate } from "./free-ai";
+import { checkFreePromptTemplate, DEFAULT_FREE_PROMPT } from "./free-ai";
 import { esc, lineDiff, REPORT_CSS, type LabCall, type Row } from "./prompt-lab";
 import { scoreCall, type ScoredTurn } from "./call-scorecard";
 
@@ -279,6 +279,17 @@ export const PROTECTED_PHRASES = [
 
 const norm = (s: string) => s.toLowerCase().replace(/\s+/g, " ");
 const MONEY_WORDS = /\b(dollars?|cents?|percent|free|refund|guarantee[ds]?|discount)\b/gi;
+
+/**
+ * The check on a free-mode prompt a person edits (the portal): against the built-in prompt, the same
+ * rules as the learning loop's edits. Every rule sentence and placeholder stays; no new numbers, money
+ * or promise words; not much longer. Empty = fine.
+ */
+export function freePromptProblems(prompt: string): string[] {
+  const t = prompt.replace(/\r\n/g, "\n").trim();
+  if (!t) return ["the prompt is empty (leave it out to use the built-in prompt)"];
+  return validateCandidate(DEFAULT_FREE_PROMPT, t).filter((p) => p !== "no change");
+}
 
 export function validateCandidate(base: string, candidate: string): string[] {
   const problems: string[] = [];

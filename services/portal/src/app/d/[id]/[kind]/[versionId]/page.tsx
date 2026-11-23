@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { approveAction, deleteDraftAction, rollbackAction, runGateAction, saveDraftAction, statusAction } from "@/app/actions";
 import { KIND_LABEL, Notices, Shell, Status } from "@/components/chrome";
 import { portalDb } from "@/server/db";
-import { KINDS, diffAgainstLive, getDealership, getVersion, permissions, type Kind } from "@/server/portal";
+import { BUILT_IN_FREE_PROMPT, KINDS, diffAgainstLive, getDealership, getVersion, permissions, type Kind } from "@/server/portal";
 import { requirePerson } from "@/server/session";
 
 export const dynamic = "force-dynamic";
@@ -221,6 +221,16 @@ export default async function VersionPage({
               <textarea id="recaps" name="recaps" rows={4} defaultValue={JSON.stringify(v.recaps ?? {}, null, 2)} />
               <p className="muted">
                 Placeholders: {"{{vehicle_year}} {{vehicle_make}} {{vehicle_model}} {{per_day_price}}"}. Prices come from the price ladder only.
+              </p>
+              <label htmlFor="free_prompt">
+                Free-mode prompt: how the AI runs the call when the AI runs it from a prompt{v.free_prompt ? "" : " (now: the built-in prompt)"}
+              </label>
+              <textarea id="free_prompt" name="free_prompt" rows={22} defaultValue={v.free_prompt ?? BUILT_IN_FREE_PROMPT} />
+              <p className="muted">
+                Keep every placeholder ({"{{vehicle}} {{script}} {{facts}} {{disclosure}} {{first_price}} {{price_steps}} {{floor}}"}) and every rule sentence
+                (the disclosure word for word, the price rules, never invent, never claim to be human). No new numbers, prices or promise words: the price
+                ladder and facts come from their own versions. Saving checks this. Whatever the prompt says, the code still enforces the price ladder, the
+                disclosure and no invented figures.
               </p>
             </>
           )}

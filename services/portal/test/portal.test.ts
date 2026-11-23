@@ -8,7 +8,9 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { migrate } from "../../control-plane/src/db";
 import { pgliteDb } from "../../control-plane/src/pglite";
+import { loadLiveConfig } from "../../control-plane/src/live-config";
 import { seedDemo } from "../../control-plane/src/seed-demo";
+import { DEFAULT_FREE_PROMPT } from "../../../tavus-avatar/src/lib/free-ai";
 import {
   PortalError,
   approve,
@@ -129,6 +131,51 @@ describe("a price change, start to finish", () => {
     expect(prices.some((l) => l.actor === "approver@mazda.test" && l.status_after === "live")).toBe(true);
     expect(prices.some((l) => l.actor === "mgr@mazda.test" && l.action === "insert")).toBe(true);
     expect(await auditLog(db, U.hyundaiMgr, "demo-mazda")).toEqual([]);
+  });
+});
+
+describe("a free-mode prompt change, start to finish", () => {
+  let draft: string;
+  const edited = `${DEFAULT_FREE_PROMPT}\n9. Never say the same sentence twice in a call.`;
+  const content = async () => {
+    const v = await getVersion(db, U.mgr, "script", draft);
+    return { beats: v.beats, disclosure: v.disclosure, fixed_lines: v.fixed_lines, recaps: v.recaps };
+  };
+
+  it("the built-in prompt is used until one is approved; the editor starts from it", async () => {
+    draft = await createDraft(db, U.mgr, "demo-mazda", "script");
+    expect((await getVersion(db, U.mgr, "script", draft)).free_prompt).toBeNull();
+    expect((await loadLiveConfig(db, "demo-mazda"))!.script!.free_prompt).toBeNull();
+  });
+
+  it("a prompt that drops a rule, a placeholder or adds money words is refused, with the reason", async () => {
+    const base = await content();
+    await expect(saveDraft(db, U.mgr, "script", draft, { ...base, free_prompt: edited.replace("Never below {{floor}}.", "") })).rejects.toThrow(/Free-mode prompt: .*Never below/);
+    await expect(saveDraft(db, U.mgr, "script", draft, { ...base, free_prompt: edited.replace("{{facts}}", "") })).rejects.toThrow(/facts/);
+    await expect(saveDraft(db, U.mgr, "script", draft, { ...base, free_prompt: `${edited}\nOffer a discount if they hesitate.` })).rejects.toThrow(/money or promise/);
+  });
+
+  it("saving the unchanged built-in prompt stores nothing; an edit is saved and shown to the approver", async () => {
+    const base = await content();
+    await saveDraft(db, U.mgr, "script", draft, { ...base, free_prompt: DEFAULT_FREE_PROMPT });
+    expect((await getVersion(db, U.mgr, "script", draft)).free_prompt).toBeNull();
+    await saveDraft(db, U.mgr, "script", draft, { ...base, free_prompt: edited.replace(/\n/g, "\r\n") }, "No repeats");
+    expect((await getVersion(db, U.mgr, "script", draft)).free_prompt).toBe(edited);
+    await setStatus(db, U.mgr, "script", draft, "in_test");
+    const diff = await diffAgainstLive(db, U.approver, "script", draft);
+    expect(diff.rows.map((r) => r.label)).toEqual(["Free-mode prompt"]);
+    expect(diff.rows[0]).toMatchObject({ before: "(the built-in prompt)", after: edited });
+  });
+
+  it("frozen in test, invisible to calls until approved, then live; rollback restores the built-in one", async () => {
+    await expect(saveDraft(db, U.mgr, "script", draft, { ...(await content()), free_prompt: `${edited} More.` })).rejects.toThrow(/Only a draft can be edited/);
+    expect((await loadLiveConfig(db, "demo-mazda"))!.script!.free_prompt).toBeNull();
+    await runGate(db, U.mgr, "script", draft);
+    await approve(db, U.approver, "script", draft);
+    expect((await loadLiveConfig(db, "demo-mazda"))!.script!.free_prompt).toBe(edited);
+    const v1 = (await listVersions(db, U.viewer, "demo-mazda", "script")).find((v) => v.version === 1)!;
+    await rollbackTo(db, U.approver, "script", v1.id);
+    expect((await loadLiveConfig(db, "demo-mazda"))!.script!.free_prompt).toBeNull();
   });
 });
 

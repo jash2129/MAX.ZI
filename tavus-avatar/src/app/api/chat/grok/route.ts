@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { processClientTurn, commitTurn, repromptText, type ControllerDecision } from "@/lib/beat-controller";
 import { clientDealConfig } from "@/lib/deal-config";
+import { isFreeAIEnabled } from "@/lib/free-ai";
+import { liveFreePrompt } from "@/lib/live-prompt";
 import { loadSession, saveSession } from "@/lib/session-store";
 import { streamingEnabled } from "@/lib/llm-stream";
 
@@ -47,6 +49,12 @@ export async function POST(request: Request) {
     // Prices never come from the browser: only the vehicle and dealership name may be overridden.
     // (A request could otherwise set price_ladder or per_day_price and have Max quote any price.)
     const dealConfig = clientDealConfig(body.dealConfig);
+    // Free mode's prompt: the one approved in the portal (live script version), else the built-in one.
+    // A call keeps the prompt it started with: its state copies dealConfig once, on its first turn.
+    if (isFreeAIEnabled()) {
+      const prompt = await liveFreePrompt();
+      if (prompt) dealConfig.free_prompt = prompt;
+    }
 
     // Serverless hosts: this call's state comes from the shared store and goes back after the turn
     // (a no-op on one long-running server, see session-store.ts)

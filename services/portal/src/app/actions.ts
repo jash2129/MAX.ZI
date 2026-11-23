@@ -189,6 +189,8 @@ export async function saveDraftAction(form: FormData) {
         disclosure: str(form, "disclosure"),
         fixed_lines: parseJson(str(form, "fixed_lines") || "{}", "Fixed lines"),
         recaps: parseJson(str(form, "recaps") || "{}", "Recaps"),
+        // Empty or unchanged from the built-in prompt = the built-in prompt (stored as null)
+        free_prompt: str(form, "free_prompt"),
       };
     }
     await saveDraft(db, p.id, kind, id, content, str(form, "notes"));

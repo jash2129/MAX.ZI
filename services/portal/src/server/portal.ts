@@ -9,15 +9,17 @@ import { isDeepStrictEqual } from "node:util";
 import { RECAP_BEATS } from "../../../../tavus-avatar/src/lib/beat-controller";
 import { validateKnowledge, validateScript, type CallScript, type KnowledgeBase } from "../../../../tavus-avatar/src/lib/call-content";
 import { DEFAULT_DEAL_CONFIG, type DealConfig } from "../../../../tavus-avatar/src/lib/deal-config";
+import { DEFAULT_FREE_PROMPT } from "../../../../tavus-avatar/src/lib/free-ai";
 import { isValidLadder } from "../../../../tavus-avatar/src/lib/price-ladder";
 import { runReleaseGate } from "../../../../tavus-avatar/src/lib/release-gate";
+import { freePromptProblems } from "../../../../tavus-avatar/src/lib/self-learn";
 import { asService, asUser, type Db, type Queryable } from "../../../control-plane/src/db";
 
 export type Kind = "script" | "price" | "kb";
 export const KINDS: Kind[] = ["script", "price", "kb"];
 const TABLE: Record<Kind, string> = { script: "script_version", price: "price_ladder_version", kb: "kb_version" };
 const CONTENT_COLUMNS: Record<Kind, string> = {
-  script: "beats, disclosure, fixed_lines, recaps",
+  script: "beats, disclosure, fixed_lines, recaps, free_prompt",
   price: "steps, products",
   kb: "facts",
 };
@@ -194,10 +196,24 @@ export async function createDraft(db: Db, userId: string, dealershipId: string, 
 export function contentProblem(kind: Kind, content: Record<string, unknown>): string | null {
   if (kind === "price") return isValidLadder(content.steps) ? null : "The price ladder must be 1-8 daily rates, highest first, each lower than the one before, over $0 and at most $100, in cents.";
   if (kind === "kb") return validateKnowledge({ facts: content.facts });
+  const prompt = freePromptOf(content);
+  if (prompt) {
+    const problems = freePromptProblems(prompt);
+    if (problems.length) return `Free-mode prompt: ${problems.join("; ")}.`;
+  }
   return validateScript(
     { beats: content.beats, disclosure: content.disclosure, fixed_lines: content.fixed_lines ?? {}, recaps: content.recaps ?? {} } as CallScript,
     RECAP_BEATS
   );
+}
+
+/** Free mode's built-in prompt: what a script version without its own prompt runs on */
+export const BUILT_IN_FREE_PROMPT = DEFAULT_FREE_PROMPT;
+
+/** The free-mode prompt in draft content: null when empty or the built-in one (the built-in prompt is used) */
+export function freePromptOf(content: Record<string, unknown>): string | null {
+  const p = typeof content.free_prompt === "string" ? content.free_prompt.replace(/\r\n/g, "\n").trim() : "";
+  return p && p !== DEFAULT_FREE_PROMPT.trim() ? p : null;
 }
 
 export async function saveDraft(db: Db, userId: string, kind: Kind, versionId: string, content: Record<string, unknown>, notes?: string): Promise<void> {
@@ -219,6 +235,7 @@ export async function saveDraft(db: Db, userId: string, kind: Kind, versionId: s
       add("disclosure", content.disclosure);
       add("fixed_lines", JSON.stringify(content.fixed_lines ?? {}));
       add("recaps", JSON.stringify(content.recaps ?? {}));
+      if (content.free_prompt !== undefined) add("free_prompt", freePromptOf(content));
     }
     if (notes !== undefined) add("notes", notes);
     const r = await tx.query(`update ${TABLE[kind]} set ${sets.join(", ")} where id = $1 and status = 'draft' returning id`, params);
@@ -269,6 +286,7 @@ async function callConfigFor(tx: Queryable, dealershipId: string, kind: Kind, ov
     price_ladder: (price.steps as Array<string | number>).map(Number),
     script: { beats: script.beats, disclosure: script.disclosure, fixed_lines: script.fixed_lines ?? {}, recaps: script.recaps ?? {} },
     knowledge: { facts: kb.facts } as KnowledgeBase,
+    ...(script.free_prompt ? { free_prompt: script.free_prompt } : {}),
   };
 }
 
@@ -320,6 +338,7 @@ export async function diffAgainstLive(db: Db, userId: string, kind: Kind, versio
     for (const id of new Set([...a.keys(), ...b.keys()])) cmp(`Fact "${id}"`, a.get(id)?.answer, b.get(id)?.answer);
   } else {
     cmp("Recording disclosure", live?.disclosure, v.disclosure);
+    cmp("Free-mode prompt", live?.free_prompt ?? "(the built-in prompt)", v.free_prompt ?? "(the built-in prompt)");
     const beats = (x: any) => new Map(((x?.beats ?? []) as any[]).map((bt) => [bt.id, bt.text]));
     const a = beats(live);
     const b = beats(v);

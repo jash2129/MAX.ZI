@@ -94,6 +94,7 @@ function dealConfigFor(dealership: DealershipConfig, deal: unknown): DealConfig 
     // Pinned to the call: a call in progress keeps them even if a new version goes live
     ...(dealership.script ? { script: dealership.script } : {}),
     ...(dealership.knowledge ? { knowledge: dealership.knowledge } : {}),
+    ...(dealership.free_prompt ? { free_prompt: dealership.free_prompt } : {}),
   };
 }
 

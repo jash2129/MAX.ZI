@@ -5,6 +5,7 @@ import { measures, table, type LabCall } from "./prompt-lab";
 import {
   digest,
   fromSheetCsv,
+  freePromptProblems,
   fromSimBatch,
   lastSheetCalls,
   holdoutGate,
@@ -93,6 +94,14 @@ describe("diagnose", () => {
 
 describe("the safety check", () => {
   const base = DEFAULT_FREE_PROMPT;
+
+  it("a person's prompt edit (portal): the built-in prompt and small edits pass, rule changes don't", () => {
+    expect(freePromptProblems(base)).toEqual([]);
+    expect(freePromptProblems(`${base}
+9. Never say the same sentence twice.`)).toEqual([]);
+    expect(freePromptProblems("")).toHaveLength(1);
+    expect(freePromptProblems(base.replace("Never below {{floor}}.", "")).join(" ")).toMatch(/Never below/);
+  });
 
   it("accepts a small style edit", () => {
     expect(validateCandidate(base, `${base}\n9. Keep replies to one to three sentences.`)).toEqual([]);
