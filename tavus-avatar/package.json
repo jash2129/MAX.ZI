@@ -10,6 +10,7 @@
     "test": "vitest run",
     "test:simulate": "node scripts/simulate-call.mjs",
     "prompt-lab": "npx --yes tsx --conditions=react-server scripts/prompt-lab.ts",
+    "prompt-improve": "npx --yes tsx --conditions=react-server scripts/prompt-improve.ts",
     "test:text": "python ../testing-skill/run_tests.py --mode text",
     "test:voice": "python ../testing-skill/run_tests.py --mode voice",
     "test:all": "python ../testing-skill/run_tests.py --mode all",

@@ -70,3 +70,53 @@ Its numbers mean nothing.
   prompts; the release gate and approval still decide what goes live.
 - The AI customers are simulations. Check a change that looks good on a few real calls too.
 - The judge is an AI too. Trust large, consistent differences, not single scores.
+
+## Learning from calls (`npm run prompt-improve`)
+
+A loop that improves the prompt from calls, and keeps only changes that pass every gate. It never
+changes what live calls use: the result is a candidate for a person to review and approve.
+
+```bash
+npm run prompt-improve -- --rounds 2                                  # from the built-in prompt
+npm run prompt-improve -- --sheet "C:/Users/<you>/Downloads/Max call log - Calls.csv"
+```
+
+Each round:
+
+1. **Collect:** the call reports in `testing-skill/reports` (free-mode calls), the calls just run on
+   the current prompt, and, with `--sheet`, the call log sheet: download its **Calls** tab as CSV
+   (File → Download → Comma-separated values). Testers' ratings and "What Went Wrong" notes are the
+   strongest signal there is.
+2. **Diagnose:** failed checks, guard refusals, judge reviews and tester notes are counted, and an AI
+   ranks the causes a prompt change could fix. Causes that need a different price, rule or fact are
+   marked "needs a person" and left alone.
+3. **Propose:** an AI writes small, targeted edits (2 by default), told what was tried before and why
+   it was refused.
+4. **Safety check** (code, not AI): every rule sentence (disclosure, price ladder, floor, refusals,
+   facts, honesty about being an AI) and every placeholder must stay; no new numbers, money or promise
+   words; not much longer. Anything else is refused before it runs a single call.
+5. **Gates:**
+   - no more hard-rule failures, ever;
+   - nothing significantly worse;
+   - at least one experience or reliability measure significantly better;
+   - **held-out customers** (4 from `testing-skill/personas.json`, never tuned on): no new failures,
+     nothing worse, and the gain points the same way, or it only memorised the training customers;
+   - with `--sheet`: the worst-rated real calls' customer lines replayed: no new hard failures.
+6. **Remember:** every candidate and the reason it was kept or refused goes to `lessons.jsonl`, so the
+   loop doesn't retry refused ideas.
+
+It stops after `--rounds`, or earlier after two rounds with nothing accepted (converged).
+
+Output:
+
+- `learned/<time>/best.md`: the improved prompt, if any round passed. Compare it yourself with
+  `npm run prompt-lab -- --a baseline.md --b learned/<time>/best.md --runs 4` before approving.
+- `testing-skill/reports/improve-<time>.html`: the learning curve (every measure after each round),
+  the causes, each candidate with its verdict and reasons, and the final prompt diff.
+
+Cost: about `16 + rounds × 48` calls with the defaults (2 rounds: about 110 calls, several thousand AI
+requests). `--fake` runs the loop with a stand-in AI to check it works; its numbers mean nothing.
+
+Privacy: the diagnosis sends counts, testers' notes and excerpts of **simulated** calls to the AI
+provider, with digit runs removed. Real calls' transcripts are never sent as excerpts; with `--sheet`,
+their customer lines are replayed to Max (the same provider Max uses on live calls).

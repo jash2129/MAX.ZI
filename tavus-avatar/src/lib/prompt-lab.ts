@@ -204,7 +204,7 @@ export function firstDivergence(a: LabTurn[], b: LabTurn[]): number {
 // The report
 // ---------------------------------------------------------------------------------------------------
 
-const esc = (s: unknown) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+export const esc = (s: unknown) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 
 const VERDICT_TEXT: Record<Verdict, string> = {
   better: "B better",
@@ -234,6 +234,25 @@ function rowsHtml(rows: Row[]): string {
     )
     .join("\n");
 }
+
+/** The report pages' styles (light and dark), shared with the improver's report */
+export const REPORT_CSS = `:root{--bg:#fbfbfa;--fg:#1d1d1b;--muted:#6b6b66;--line:#e4e3de;--card:#fff;--ok:#1f7a3d;--bad:#b42318;--warn:#9a6700;--add:#e7f5ec;--del:#fde8e6;--hl:#fff4cc;--accent:#2f5bd3}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#161615;--fg:#ececea;--muted:#9a9a94;--line:#2e2e2b;--card:#1e1e1c;--ok:#5cc785;--bad:#ff7b6e;--warn:#e0b341;--add:#173323;--del:#3a1d1a;--hl:#3a3315;--accent:#8aa8ff}}
+:root[data-theme="dark"]{--bg:#161615;--fg:#ececea;--muted:#9a9a94;--line:#2e2e2b;--card:#1e1e1c;--ok:#5cc785;--bad:#ff7b6e;--warn:#e0b341;--add:#173323;--del:#3a1d1a;--hl:#3a3315;--accent:#8aa8ff}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}
+main{max-width:1200px;margin:0 auto;padding:24px 16px 64px}h1{font-size:24px;margin:0 0 4px}h2{font-size:18px;margin:32px 0 8px}h3{font-size:15px;margin:20px 0 6px}
+.muted{color:var(--muted)}.ok{color:var(--ok)}.bad{color:var(--bad)}.warn{color:var(--warn)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+.scroll{overflow-x:auto}table{border-collapse:collapse;width:100%;min-width:640px}th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top}th{font-weight:600;font-size:13px;color:var(--muted)}
+td.num{font-variant-numeric:tabular-nums;white-space:nowrap}.se{color:var(--muted);font-size:12px}
+.v{font-size:12px;font-weight:600;padding:2px 8px;border-radius:99px;white-space:nowrap;border:1px solid var(--line)}
+.v-better{color:var(--ok);border-color:var(--ok)}.v-worse{color:var(--bad);border-color:var(--bad)}.v-changed{color:var(--accent);border-color:var(--accent)}.v-within-noise,.v-same,.v-too-few-calls{color:var(--muted)}
+.diff{font:13px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace;overflow-x:auto}.dl{white-space:pre-wrap;padding:0 8px}.dadd{background:var(--add)}.ddel{background:var(--del)}.op{display:inline-block;width:16px;color:var(--muted)}.fold{color:var(--muted);padding:2px 8px;font-style:italic}
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:12px}@media (max-width:760px){.pair{grid-template-columns:1fr}}
+.col{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 12px;min-width:0}.col .meta{font-weight:600;margin-bottom:4px}.sum{color:var(--muted);margin:4px 0}
+.tx{padding-left:22px;margin:8px 0 0}.tx li{margin:0 0 8px}.tx .cu{color:var(--muted)}.tx .mx{overflow-wrap:anywhere}.tx li.div{background:var(--hl);border-radius:6px;padding:4px}.tag{font-size:12px;color:var(--warn)}
+details>summary{cursor:pointer;font-weight:600;margin:10px 0}.pills span{display:inline-block;margin:2px 6px 2px 0}
+`;
 
 export interface ReportInput {
   title: string;
@@ -298,23 +317,7 @@ export function reportHtml(r: ReportInput): string {
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Prompt Lab Report</title>
 <style>
-:root{--bg:#fbfbfa;--fg:#1d1d1b;--muted:#6b6b66;--line:#e4e3de;--card:#fff;--ok:#1f7a3d;--bad:#b42318;--warn:#9a6700;--add:#e7f5ec;--del:#fde8e6;--hl:#fff4cc;--accent:#2f5bd3}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#161615;--fg:#ececea;--muted:#9a9a94;--line:#2e2e2b;--card:#1e1e1c;--ok:#5cc785;--bad:#ff7b6e;--warn:#e0b341;--add:#173323;--del:#3a1d1a;--hl:#3a3315;--accent:#8aa8ff}}
-:root[data-theme="dark"]{--bg:#161615;--fg:#ececea;--muted:#9a9a94;--line:#2e2e2b;--card:#1e1e1c;--ok:#5cc785;--bad:#ff7b6e;--warn:#e0b341;--add:#173323;--del:#3a1d1a;--hl:#3a3315;--accent:#8aa8ff}
-*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}
-main{max-width:1200px;margin:0 auto;padding:24px 16px 64px}h1{font-size:24px;margin:0 0 4px}h2{font-size:18px;margin:32px 0 8px}h3{font-size:15px;margin:20px 0 6px}
-.muted{color:var(--muted)}.ok{color:var(--ok)}.bad{color:var(--bad)}.warn{color:var(--warn)}
-.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
-.scroll{overflow-x:auto}table{border-collapse:collapse;width:100%;min-width:640px}th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top}th{font-weight:600;font-size:13px;color:var(--muted)}
-td.num{font-variant-numeric:tabular-nums;white-space:nowrap}.se{color:var(--muted);font-size:12px}
-.v{font-size:12px;font-weight:600;padding:2px 8px;border-radius:99px;white-space:nowrap;border:1px solid var(--line)}
-.v-better{color:var(--ok);border-color:var(--ok)}.v-worse{color:var(--bad);border-color:var(--bad)}.v-changed{color:var(--accent);border-color:var(--accent)}.v-within-noise,.v-same,.v-too-few-calls{color:var(--muted)}
-.diff{font:13px/1.45 ui-monospace,SFMono-Regular,Consolas,monospace;overflow-x:auto}.dl{white-space:pre-wrap;padding:0 8px}.dadd{background:var(--add)}.ddel{background:var(--del)}.op{display:inline-block;width:16px;color:var(--muted)}.fold{color:var(--muted);padding:2px 8px;font-style:italic}
-.pair{display:grid;grid-template-columns:1fr 1fr;gap:12px}@media (max-width:760px){.pair{grid-template-columns:1fr}}
-.col{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 12px;min-width:0}.col .meta{font-weight:600;margin-bottom:4px}.sum{color:var(--muted);margin:4px 0}
-.tx{padding-left:22px;margin:8px 0 0}.tx li{margin:0 0 8px}.tx .cu{color:var(--muted)}.tx .mx{overflow-wrap:anywhere}.tx li.div{background:var(--hl);border-radius:6px;padding:4px}.tag{font-size:12px;color:var(--warn)}
-details>summary{cursor:pointer;font-weight:600;margin:10px 0}.pills span{display:inline-block;margin:2px 6px 2px 0}
-</style></head><body><main>
+${REPORT_CSS}</style></head><body><main>
 <h1>${esc(r.title)}</h1>
 <p class="muted">${esc(r.when)} · A: <b>${esc(r.promptA.name)}</b> (${counts("A")} calls) · B: <b>${esc(r.promptB.name)}</b> (${counts("B")} calls) · ${esc(r.settings)}</p>
 ${errors.length ? `<p class="bad">${errors.length} call${errors.length === 1 ? "" : "s"} failed to run (left out of the numbers).</p>` : ""}
