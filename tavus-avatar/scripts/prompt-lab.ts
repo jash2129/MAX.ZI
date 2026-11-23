@@ -18,6 +18,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 
 import type { LabCall } from "../src/lib/prompt-lab";
+import { llmTarget } from "../src/lib/llm-stream";
 import { callLine, installFakeAI, loadEnvLocal, out, pool, reportsDir, silenceConsole, simulate, trainingPersonas, userPath } from "./lab/sim";
 
 silenceConsole();
@@ -81,7 +82,7 @@ async function main() {
   mkdirSync(reportsDir, { recursive: true });
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   const file = path.join(reportsDir, `prompt-lab-${stamp}.html`);
-  const settings = `${personas.length} customers × ${runs} runs · glitches ${Math.round(noise * 100)}% · ${fake ? "stand-in AI" : `model ${process.env.GROK_MODEL?.trim() || (process.env.XAI_API_KEY ? "xAI default" : "OpenAI default")}`}`;
+  const settings = `${personas.length} customers × ${runs} runs · glitches ${Math.round(noise * 100)}% · ${fake ? "stand-in AI" : `model ${llmTarget()?.model ?? "none"}`}`;
   writeFileSync(file, reportHtml({ title: "Prompt Lab", when: new Date().toLocaleString(), promptA, promptB, calls, checks, settings }));
   writeFileSync(file.replace(/\.html$/, ".json"), JSON.stringify({ promptA, promptB, checks, settings, calls }, null, 2));
 

@@ -3,6 +3,7 @@ import "server-only";
 import type { CallState } from "./beat-controller";
 import { analyzeCallExperience } from "./call-experience-analyzer";
 import type { HeygenCallLog } from "./heygen-logger";
+import { llmTarget } from "./llm-stream";
 
 // Post-call analysis for the call log sheet, from three sources:
 //  - the turn-taking analyzer the Inspector uses (rating, timestamped echo / cut-off / latency problems)
@@ -100,11 +101,11 @@ export function parseJudgeReply(content: string): JudgeResult | null {
 
 /** One LLM review of the call. Same keys and model choice as the rest of the app (xAI first, then OpenAI). */
 export async function judgeCall(transcriptText: string, facts: string): Promise<JudgeResult | null> {
-  const apiKey = process.env.XAI_API_KEY?.trim() || process.env.OPENAI_API_KEY?.trim();
+  const target = llmTarget();
+  const apiKey = target?.apiKey;
   if (!apiKey || !transcriptText.trim()) return null;
-  const isXai = Boolean(process.env.XAI_API_KEY?.trim());
-  const endpoint = isXai ? "https://api.x.ai/v1/chat/completions" : "https://api.openai.com/v1/chat/completions";
-  const model = process.env.GROK_MODEL?.trim() || (isXai ? "grok-4.20-0309-non-reasoning" : "gpt-4o-mini");
+  // The provider and model: llmTarget (llm-stream.ts), the one place that chooses them
+  const { endpoint, model } = target!;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), JUDGE_TIMEOUT_MS);

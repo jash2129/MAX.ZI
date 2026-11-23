@@ -16,15 +16,39 @@ export interface LlmTarget {
   model: string;
 }
 
-/** The configured provider, or null without a key. `modelOverride` wins over GROK_MODEL. */
+/** Which AI provider Max uses: AI_PROVIDER ("openai" or "xai") if that key is set, else xAI if its key is set, else OpenAI */
+export function aiProvider(): "openai" | "xai" | null {
+  const xai = Boolean(process.env.XAI_API_KEY?.trim());
+  const openai = Boolean(process.env.OPENAI_API_KEY?.trim());
+  const want = process.env.AI_PROVIDER?.trim().toLowerCase();
+  if (want === "openai" && openai) return "openai";
+  if (want === "xai" && xai) return "xai";
+  return xai ? "xai" : openai ? "openai" : null;
+}
+
+const isGrokModel = (m: string | undefined) => Boolean(m && /^grok/i.test(m.trim()));
+
+/**
+ * The configured provider, or null without a key: the one place every AI call chooses its provider and
+ * model. Model: `modelOverride`, then OPENAI_MODEL (OpenAI) or GROK_MODEL (xAI). A Grok model name is
+ * never sent to OpenAI (GROK_MODEL is often left set when switching): OpenAI then gets OPENAI_MODEL or
+ * gpt-4o-mini.
+ */
 export function llmTarget(modelOverride?: string): LlmTarget | null {
-  const apiKey = process.env.XAI_API_KEY?.trim() || process.env.OPENAI_API_KEY?.trim();
-  if (!apiKey) return null;
-  const isXai = Boolean(process.env.XAI_API_KEY?.trim());
+  const provider = aiProvider();
+  if (!provider) return null;
+  if (provider === "xai") {
+    return {
+      endpoint: "https://api.x.ai/v1/chat/completions",
+      apiKey: process.env.XAI_API_KEY!.trim(),
+      model: modelOverride?.trim() || process.env.GROK_MODEL?.trim() || "grok-4.20-0309-non-reasoning",
+    };
+  }
+  const pick = [modelOverride, process.env.OPENAI_MODEL, process.env.GROK_MODEL].map((m) => m?.trim()).find((m) => m && !isGrokModel(m));
   return {
-    endpoint: isXai ? "https://api.x.ai/v1/chat/completions" : "https://api.openai.com/v1/chat/completions",
-    apiKey,
-    model: modelOverride?.trim() || process.env.GROK_MODEL?.trim() || (isXai ? "grok-4.20-0309-non-reasoning" : "gpt-4o-mini"),
+    endpoint: "https://api.openai.com/v1/chat/completions",
+    apiKey: process.env.OPENAI_API_KEY!.trim(),
+    model: pick || "gpt-4o-mini",
   };
 }
 

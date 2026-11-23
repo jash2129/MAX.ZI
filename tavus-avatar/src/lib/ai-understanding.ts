@@ -19,6 +19,7 @@
  * Pure apart from the fetch: the caller (classifyWithLLM in beat-controller.ts) passes the context in.
  */
 import type { ClassificationResult, ClassifierIntent } from "./beat-controller";
+import { llmTarget } from "./llm-stream";
 
 export const AI_UNDERSTANDING_TIMEOUT_MS = Number(process.env.AI_UNDERSTANDING_TIMEOUT_MS) || 1500;
 export const MIN_CONFIDENCE = 0.6;
@@ -218,11 +219,11 @@ export function parseUnderstanding(raw: string, ctx: Pick<UnderstandingContext, 
  */
 export async function understandWithAI(ctx: UnderstandingContext, fetchImpl: typeof fetch = fetch): Promise<ClassificationResult> {
   const fallback = (why: string): ClassificationResult => ({ ...ctx.ruleResult, usedLLM: true, source: "rules", aiReason: why });
-  const apiKey = process.env.XAI_API_KEY?.trim() || process.env.OPENAI_API_KEY?.trim();
+  const target = llmTarget();
+  const apiKey = target?.apiKey;
   if (!apiKey) return { ...ctx.ruleResult, source: "rules" };
-  const isXai = Boolean(process.env.XAI_API_KEY?.trim());
-  const endpoint = isXai ? "https://api.x.ai/v1/chat/completions" : "https://api.openai.com/v1/chat/completions";
-  const model = process.env.GROK_MODEL?.trim() || (isXai ? "grok-4.20-0309-non-reasoning" : "gpt-4o-mini");
+  // The provider and model: llmTarget (llm-stream.ts), the one place that chooses them
+  const { endpoint, model } = target!;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), AI_UNDERSTANDING_TIMEOUT_MS);

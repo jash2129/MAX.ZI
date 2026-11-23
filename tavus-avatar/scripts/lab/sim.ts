@@ -8,6 +8,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type { JudgeResult, LabCall, LabTurn, Variant } from "../../src/lib/prompt-lab";
+import { llmTarget } from "../../src/lib/llm-stream";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 export const appRoot = path.resolve(here, "../..");
@@ -80,11 +81,10 @@ Rules:
 }
 
 export async function chat(messages: Array<{ role: string; content: string }>, opts: { temperature: number; maxTokens: number; seed?: number; json?: boolean }): Promise<string> {
-  const xai = process.env.XAI_API_KEY?.trim();
-  const key = xai || process.env.OPENAI_API_KEY?.trim();
-  if (!key) throw new Error("XAI_API_KEY or OPENAI_API_KEY is needed (tavus-avatar/.env.local), or use --fake");
-  const endpoint = xai ? "https://api.x.ai/v1/chat/completions" : "https://api.openai.com/v1/chat/completions";
-  const model = process.env.GROK_MODEL?.trim() || (xai ? "grok-4.20-0309-non-reasoning" : "gpt-4o-mini");
+  // Same provider and model choice as Max (llmTarget: AI_PROVIDER, then the keys that are set)
+  const target = llmTarget();
+  if (!target) throw new Error("XAI_API_KEY or OPENAI_API_KEY is needed (tavus-avatar/.env.local), or use --fake");
+  const { endpoint, model, apiKey: key } = target;
   let last = "";
   for (let attempt = 0; attempt < 4; attempt++) {
     const res = await fetch(endpoint, {
@@ -96,7 +96,7 @@ export async function chat(messages: Array<{ role: string; content: string }>, o
         max_tokens: opts.maxTokens,
         messages,
         // Same customer opening on A and B (OpenAI honours it best-effort; not sent to xAI)
-        ...(opts.seed !== undefined && !xai ? { seed: opts.seed } : {}),
+        ...(opts.seed !== undefined && endpoint.includes("openai.com") ? { seed: opts.seed } : {}),
         ...(opts.json ? { response_format: { type: "json_object" } } : {}),
       }),
     });

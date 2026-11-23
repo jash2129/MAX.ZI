@@ -26,6 +26,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ScoredTurn, Scorecard } from "../src/lib/call-scorecard";
+import { llmTarget } from "../src/lib/llm-stream";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const appRoot = path.resolve(here, "..");
@@ -87,11 +88,10 @@ Rules:
 }
 
 async function chat(messages: Array<{ role: string; content: string }>, temperature: number): Promise<string> {
-  const xai = process.env.XAI_API_KEY?.trim();
-  const key = xai || process.env.OPENAI_API_KEY?.trim();
-  if (!key) throw new Error("XAI_API_KEY or OPENAI_API_KEY is needed for the AI customer");
-  const endpoint = xai ? "https://api.x.ai/v1/chat/completions" : "https://api.openai.com/v1/chat/completions";
-  const model = process.env.GROK_MODEL?.trim() || (xai ? "grok-4.20-0309-non-reasoning" : "gpt-4o-mini");
+  // Same provider and model choice as Max (llmTarget: AI_PROVIDER, then the keys that are set)
+  const target = llmTarget();
+  if (!target) throw new Error("XAI_API_KEY or OPENAI_API_KEY is needed for the AI customer");
+  const { endpoint, model, apiKey: key } = target;
   for (let attempt = 0; attempt < 3; attempt++) {
     const res = await fetch(endpoint, {
       method: "POST",

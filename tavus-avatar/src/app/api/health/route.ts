@@ -4,6 +4,7 @@ import { storeBackend, upstashEnvNames } from "@/lib/upstash";
 import { isAIFirstEnabled } from "@/lib/ai-understanding";
 import { isAISpeechEnabled } from "@/lib/ai-speech";
 import { isFreeAIEnabled } from "@/lib/free-ai";
+import { aiProvider, llmTarget } from "@/lib/llm-stream";
 import { liveConfigStatus } from "@/lib/live-config";
 import { defaultSttEngine } from "@/lib/deepgram-stt";
 import { mintDeepgramToken } from "@/lib/deepgram-token";
@@ -27,6 +28,11 @@ export async function GET(request: Request) {
     callLogSecret: set("CALL_LOG_SECRET"),
     heygenKey: set("HEYGEN_API_KEY"),
     aiKey: set("XAI_API_KEY") || set("OPENAI_API_KEY"),
+    // Which AI Max uses: AI_PROVIDER ("openai" / "xai"), else xAI if its key is set, else OpenAI
+    ai: (() => {
+      const t = llmTarget();
+      return t ? { provider: aiProvider(), model: t.model } : null;
+    })(),
     // "free": the AI runs the whole call (MAX_MODE=free); "script": the beat controller does
     mode: isFreeAIEnabled() ? (set("XAI_API_KEY") || set("OPENAI_API_KEY") ? "free" : "free (no key: script only)") : "script",
     // Calls' content: "portal" (the dealership's live versions, with their numbers, and whether free

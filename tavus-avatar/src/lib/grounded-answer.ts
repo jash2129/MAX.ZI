@@ -12,6 +12,7 @@
 import { kbData } from "./call-content";
 import { UNKNOWN_QUESTION_LINE } from "./max-lines";
 import { extraLLMAllowed } from "./llm-context";
+import { llmTarget } from "./llm-stream";
 
 interface Fact {
   id: string;
@@ -131,11 +132,11 @@ function firstSentences(text: string, n: number): string {
 }
 
 async function rewriteWithLLM(question: string, passages: string[]): Promise<string> {
-  const apiKey = process.env.XAI_API_KEY?.trim() || process.env.OPENAI_API_KEY?.trim();
+  const target = llmTarget();
+  const apiKey = target?.apiKey;
   if (!apiKey || !extraLLMAllowed()) return "";
-  const isXai = Boolean(process.env.XAI_API_KEY);
-  const endpoint = isXai ? "https://api.x.ai/v1/chat/completions" : "https://api.openai.com/v1/chat/completions";
-  const model = process.env.GROK_MODEL?.trim() || (isXai ? "grok-4.20-0309-non-reasoning" : "gpt-4o-mini");
+  // The provider and model: llmTarget (llm-stream.ts), the one place that chooses them
+  const { endpoint, model } = target!;
   const system = `You are Max, a calm finance manager. Answer the customer's question in at most two short spoken sentences using ONLY the PASSAGES.
 Rules: do not add any fact, number, price, promise or guarantee that is not in the passages. If the passages do not answer the question, output exactly: NO_ANSWER.
 Do not sell or pressure. Plain speech, no markdown.`;
@@ -183,11 +184,11 @@ async function pickFactWithLLM(
   question: string,
   facts: Array<{ id: string; topic: string }>
 ): Promise<{ id: string | null; timedOut: boolean }> {
-  const apiKey = process.env.XAI_API_KEY?.trim() || process.env.OPENAI_API_KEY?.trim();
+  const target = llmTarget();
+  const apiKey = target?.apiKey;
   if (!apiKey) return { id: null, timedOut: false };
-  const isXai = Boolean(process.env.XAI_API_KEY);
-  const endpoint = isXai ? "https://api.x.ai/v1/chat/completions" : "https://api.openai.com/v1/chat/completions";
-  const model = process.env.GROK_MODEL?.trim() || (isXai ? "grok-4.20-0309-non-reasoning" : "gpt-4o-mini");
+  // The provider and model: llmTarget (llm-stream.ts), the one place that chooses them
+  const { endpoint, model } = target!;
   const list = facts.map((f) => `${f.id}: ${f.topic}`).join("\n");
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FACT_PICKER_TIMEOUT_MS);

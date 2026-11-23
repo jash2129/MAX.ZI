@@ -39,6 +39,7 @@ import { answerFromKnowledgeBase, looksLikeQuestion } from "./grounded-answer";
 
 export type { Beat } from "./call-content";
 import type { Beat } from "./call-content";
+import { llmTarget } from "./llm-stream";
 
 /** The demo's built-in beats. A call reads its own (possibly a dealership's) with scriptBeats(). */
 export const BEATS: Beat[] = BUILT_IN_BEATS;
@@ -2146,14 +2147,14 @@ export async function classifyWithLLM(
     return fastRuleResult;
   }
 
-  const apiKey = process.env.XAI_API_KEY?.trim() || process.env.OPENAI_API_KEY?.trim();
+  const target = llmTarget();
+  const apiKey = target?.apiKey;
   if (!apiKey) {
     return fastRuleResult;
   }
 
-  const isXai = Boolean(process.env.XAI_API_KEY);
-  const endpoint = isXai ? "https://api.x.ai/v1/chat/completions" : "https://api.openai.com/v1/chat/completions";
-  const model = process.env.GROK_MODEL?.trim() || (isXai ? "grok-4.20-0309-non-reasoning" : "gpt-4o-mini");
+  // The provider and model: llmTarget (llm-stream.ts), the one place that chooses them
+  const { endpoint, model } = target!;
 
   const systemPrompt = `You are a strict, ultra-fast intent classification engine for a car dealership finance manager call.
 Output ONLY valid JSON with keys "intent" and "topic_beat_ids".
@@ -2558,14 +2559,14 @@ export async function generateConstrainedOffScriptResponse(
     return L.OUT_OF_SCRIPT_LINE;
   }
 
-  const apiKey = process.env.XAI_API_KEY?.trim() || process.env.OPENAI_API_KEY?.trim();
+  const target = llmTarget();
+  const apiKey = target?.apiKey;
   if (!apiKey) {
     return "";
   }
 
-  const isXai = Boolean(process.env.XAI_API_KEY);
-  const endpoint = isXai ? "https://api.x.ai/v1/chat/completions" : "https://api.openai.com/v1/chat/completions";
-  const model = process.env.GROK_MODEL?.trim() || (isXai ? "grok-4.20-0309-non-reasoning" : "gpt-4o-mini");
+  // The provider and model: llmTarget (llm-stream.ts), the one place that chooses them
+  const { endpoint, model } = target!;
 
   const systemPrompt = `You are Max, an authoritative, polite Digital Finance Manager at a car dealership.
 The customer asked an off-script question during their finance paperwork review.
