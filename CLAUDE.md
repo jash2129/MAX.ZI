@@ -62,6 +62,12 @@ Next.js app (`tavus-avatar/`) for an AWS Summit Sydney booth demo. Real-time con
     claims, and the word-for-word recording disclosure; a reply that fails twice, times out
     (`FREE_AI_TIMEOUT_MS`, default 4 s) or errors is taken by the scripted controller for that turn.
     Overrides the other two switches. Not approved by TXM for real customers.
+- `MAX_CONFIG_DATABASE_URL` + `MAX_DEALERSHIP_ID` - the call app runs that dealership's content approved
+  in the portal (`src/lib/live-config.ts`): its LIVE script (with free mode's prompt), price ladder and
+  knowledge base plus the shared facts, read as `brain_service` (live versions only) with the brain's
+  login (`services/brain/.env.local` → `DATABASE_URL`). All or nothing, checked like the brain does;
+  unset, unreachable or invalid = the built-in content, logged and shown in `/api/health` → `content`.
+  Cached 30 s; a call keeps the content it started with.
 - `DEMO_API_TOKEN` - gates every `/api/*` route (except `/api/auth`) behind a shared login token, checked in `src/proxy.ts`. Unset → auth is skipped in dev, but **fails closed with 503** if `NODE_ENV=production` and it's still unset — a missing token in production means the deployment is misconfigured, not that auth should be silently disabled. Required for any deployment reachable outside your own machine.
 
 ## Digital Finance Manager event (`EVENT_CONFIG=digital-finance-manager`)
