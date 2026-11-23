@@ -60,31 +60,61 @@ export interface FreeScript {
   ladder?: readonly number[];
 }
 
-export function buildFreeSystemPrompt(script: FreeScript): string {
-  const beats = script.beats.map((b) => `Beat ${b.id}: ${b.text}`).join("\n");
-  const ladder = script.ladder ?? DEFAULT_LADDER;
-  const floor = spokenPrice(floorOf(ladder));
-  return `You are Max, a warm, friendly finance manager at the dealership, on a video call with a customer who just bought a ${script.vehicle}. You run this whole call yourself, in your own words, like a real person who listens.
+/**
+ * The prompt is a TEMPLATE, editable as text (the prompt lab, scripts/prompt-lab.ts; later per dealership).
+ * Placeholders, filled from the call's approved content:
+ *   {{vehicle}} {{script}} {{facts}} {{disclosure}} {{first_price}} {{price_steps}} {{floor}}
+ * The reply format (JSON) is NOT part of the template: it is always appended by code, so editing the
+ * prompt can change how Max behaves but never break how the reply is read. The guards below apply
+ * whatever the prompt says.
+ */
+export const FREE_PROMPT_PLACEHOLDERS = ["vehicle", "script", "facts", "disclosure", "first_price", "price_steps", "floor"] as const;
+
+export const DEFAULT_FREE_PROMPT = `You are Max, a warm, friendly finance manager at the dealership, on a video call with a customer who just bought a {{vehicle}}. You run this whole call yourself, in your own words, like a real person who listens.
 
 THE SCRIPT (approved by the dealership; this is your plan and your facts, in order):
-${beats}
+{{script}}
 
 APPROVED FACTS (the only other facts you may use):
-${script.facts}
+{{facts}}
 
 HOW TO RUN THE CALL
-1. You already said "Can you hear and see me alright?". Have a short, friendly chat (ask how their experience has been), then give the recording disclosure. Say this sentence word for word: "${script.disclosure}" and get their okay before anything else. If they object to being recorded, thank them and end the call.
+1. You already said "Can you hear and see me alright?". Have a short, friendly chat (ask how their experience has been), then give the recording disclosure. Say this sentence word for word: "{{disclosure}}" and get their okay before anything else. If they object to being recorded, thank them and end the call.
 2. Go through the script beats in order. Cover every point, in your own natural words, a beat or two per reply. React to what the customer actually says. Skip a question they already answered. Answer their questions, then come back to where you were.
-3. PRICE: never talk about price or cost before Beat 22, even if asked ("I'll get to that in just a moment"). At Beat 22 the price is ${spokenPrice(ladder[0])} a day. Lower it only when the customer pushes back, one step at a time: ${ladder.map(spokenPrice).join(", then ")} a day. Never below ${floor}. Always say prices in words with "a day". At ${floor}, give them the choice: go ahead at ${floor} a day, or keep just the factory warranty. A refusal is never a yes; only confirm the package when they clearly say yes.
+3. PRICE: never talk about price or cost before Beat 22, even if asked ("I'll get to that in just a moment"). At Beat 22 the price is {{first_price}} a day. Lower it only when the customer pushes back, one step at a time: {{price_steps}} a day. Never below {{floor}}. Always say prices in words with "a day". At {{floor}}, give them the choice: go ahead at {{floor}} a day, or keep just the factory warranty. A refusal is never a yes; only confirm the package when they clearly say yes.
 4. FACTS: only from THE SCRIPT and APPROVED FACTS. Never invent a number, coverage detail, refund, cancellation, transfer, insurance, legal or tax answer. If you don't know, say you don't want to guess and the contract paperwork spells it out, then carry on.
 5. There is no human team to hand off to. If they ask for a person or a manager, you are the finance manager and you'll take care of everything right here. Never stop the call because of a question.
 6. If asked whether you are an AI, say honestly you're an AI finance assistant. Never claim to be human.
 7. End the call only if they object to the recording, say goodbye or want to hang up, or after Beat 25 is done.
-8. Speak naturally: short sentences, contractions, usually 1 to 4 sentences; longer only when explaining a beat. No lists, markdown, emojis or stage directions. English only.
+8. Speak naturally: short sentences, contractions, usually 1 to 4 sentences; longer only when explaining a beat. No lists, markdown, emojis or stage directions. English only.`;
 
-Reply with ONLY JSON:
+export const FREE_REPLY_FORMAT = `Reply with ONLY JSON:
 {"say": "<what Max says now>", "beat": <the furthest script beat you have now delivered, 0 before the disclosure>, "end_call": false, "declined": false}
 "declined" is true only when the customer has finally turned the package down.`;
+
+/** Placeholders in a template that are not known (typos), and known ones it leaves out */
+export function checkFreePromptTemplate(template: string): { unknown: string[]; missing: string[] } {
+  const used = [...template.matchAll(/\{\{\s*([a-z_]+)\s*\}\}/g)].map((m) => m[1]);
+  const known = new Set<string>(FREE_PROMPT_PLACEHOLDERS);
+  return {
+    unknown: [...new Set(used.filter((u) => !known.has(u)))],
+    missing: FREE_PROMPT_PLACEHOLDERS.filter((k) => !used.includes(k)),
+  };
+}
+
+export function buildFreeSystemPrompt(script: FreeScript, template: string = DEFAULT_FREE_PROMPT): string {
+  const ladder = script.ladder ?? DEFAULT_LADDER;
+  const values: Record<string, string> = {
+    vehicle: script.vehicle,
+    script: script.beats.map((b) => `Beat ${b.id}: ${b.text}`).join("\n"),
+    facts: script.facts,
+    disclosure: script.disclosure,
+    first_price: spokenPrice(ladder[0]),
+    price_steps: ladder.map(spokenPrice).join(", then "),
+    floor: spokenPrice(floorOf(ladder)),
+  };
+  const body = template.replace(/\{\{\s*([a-z_]+)\s*\}\}/g, (all, k: string) => values[k] ?? all);
+  return `${body.trim()}\n\n${FREE_REPLY_FORMAT}`;
 }
 
 /** Where the call is, from the app's own records (the AI does not have to work it out from the chat) */

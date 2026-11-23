@@ -2933,7 +2933,7 @@ async function processFreeTurn(
   const script = freeScript(state.dealConfig);
   const corpus = `${script.beats.map((b) => b.text).join(" ")} ${script.facts} ${script.vehicle} ${L.STEP_0_GREETING}`;
   const outcome = await runFreeTurn({
-    system: buildFreeSystemPrompt(script),
+    system: buildFreeSystemPrompt(script, state.dealConfig.free_prompt),
     history: freeHistory(state),
     customer: customerTranscript,
     guard: {

@@ -16,6 +16,11 @@ export interface DealConfig {
   script?: CallScript;
   /** The dealership's approved knowledge base, with the platform's shared facts. Unset = the demo's. */
   knowledge?: KnowledgeBase;
+  /**
+   * Free mode only (MAX_MODE=free): the prompt TEMPLATE Max runs the call from (free-ai.ts,
+   * DEFAULT_FREE_PROMPT). Unset = the built-in one. Server-side only, never sent to the browser.
+   */
+  free_prompt?: string;
 }
 
 export const HYUNDAI_DEAL_CONFIG: DealConfig = {
