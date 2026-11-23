@@ -6,6 +6,7 @@ import {
   digest,
   fromSheetCsv,
   fromSimBatch,
+  lastSheetCalls,
   holdoutGate,
   learningReportHtml,
   lessonsForPrompt,
@@ -28,6 +29,27 @@ describe("collect", () => {
 
   it("refuses a CSV that isn't the call log", () => {
     expect(() => fromSheetCsv("a,b\n1,2\n")).toThrow(/Transcript/);
+  });
+
+  it("last n sheet calls: drops sample rows, keeps a repeated Call ID once", () => {
+    const row = (id: string) => `${id},"Max: hi
+Customer: yes
+Max: ok"
+`;
+    const calls = fromSheetCsv(`Call ID,Transcript
+${["SAMPLE-0001", "a", "b", "a", "c"].map(row).join("")}`);
+    expect(lastSheetCalls(calls, 2).map((c) => c.id)).toEqual(["a", "c"]);
+    expect(lastSheetCalls(calls, 30).map((c) => c.id)).toEqual(["b", "a", "c"]);
+  });
+
+  it("reads the sheet's own AI review: problems, fixes and score", () => {
+    const [c] = fromSheetCsv(`Call ID,Transcript,AI Score (1-10),AI Call Summary,AI Problems Found,AI Suggested Fixes
+x,"Max: hi
+Customer: yes
+Max: ok",3,"fine","looped","stop recapping"
+`);
+    expect(c.aiScore).toBe(3);
+    expect(c.aiSummary).toBe("problems: looped | fixes: stop recapping");
   });
 
   it("CSV edge cases", () => {

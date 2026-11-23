@@ -169,10 +169,20 @@ export function fromSheetCsv(text: string): CorpusCall[] {
         // Beats aren't in the sheet, so only the checks that don't need them are meaningful here
         failures: failuresOf(card.checks).filter((f) => /loop|word for word|repeat/i.test(f.label)),
         guardReasons: [],
+        // The sheet's own AI review of the call: its problems and fixes say most about what to change
+        aiSummary: [at(r, "AI Problems Found") && `problems: ${at(r, "AI Problems Found")}`, at(r, "AI Suggested Fixes") && `fixes: ${at(r, "AI Suggested Fixes")}`].filter(Boolean).join(" | ") || at(r, "AI Call Summary") || undefined,
+        aiScore: num(at(r, "AI Score (1-10)")),
         human: Object.values(human).some((v) => v !== undefined) ? human : undefined,
       };
     })
     .filter((c) => c.turns.length > 0);
+}
+
+/** The last `n` real calls in sheet order: sample rows dropped, a repeated Call ID kept once (its last row). */
+export function lastSheetCalls(calls: CorpusCall[], n: number): CorpusCall[] {
+  const real = calls.filter((c) => !/^sample/i.test(c.id));
+  const unique = real.filter((c, i) => !real.slice(i + 1).some((d) => d.id === c.id));
+  return unique.slice(-n);
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -232,7 +242,7 @@ export function digest(corpus: CorpusCall[], opts: { maxChars?: number } = {}): 
   }
 
   const reviewed = corpus.filter((c) => c.aiSummary).sort((a, b) => (a.aiScore ?? 10) - (b.aiScore ?? 10));
-  if (reviewed.length) parts.push(`\nAI REVIEWS OF THE WORST CALLS:\n${reviewed.slice(0, 12).map((c) => `- (${c.persona ?? c.source}, ${c.aiScore?.toFixed(1) ?? "?"}) ${redact(c.aiSummary!).slice(0, 260)}`).join("\n")}`);
+  if (reviewed.length) parts.push(`\nAI REVIEWS OF THE WORST CALLS:\n${reviewed.slice(0, 12).map((c) => `- (${c.persona ?? c.source}, ${c.aiScore?.toFixed(1) ?? "?"}) ${redact(c.aiSummary!).slice(0, 400)}`).join("\n")}`);
 
   // A few excerpts, simulated calls only (no real customer's words leave the machine as examples)
   const worst = corpus.filter((c) => c.source !== "sheet" && (c.failures.length || c.guardReasons.length)).sort((a, b) => b.failures.length + b.guardReasons.length - (a.failures.length + a.guardReasons.length));

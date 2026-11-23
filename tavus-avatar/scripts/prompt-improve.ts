@@ -16,6 +16,7 @@
  *   --sheet <csv>          the call log sheet, downloaded as CSV: testers' ratings and notes go into
  *                          the diagnosis, and real calls' customer lines are replayed on every
  *                          candidate (--replay, default 6 calls)
+ *   --sheet-last <n>       only the sheet's last n calls (sample rows and repeated Call IDs dropped)
  *   --parallel 6           calls at once
  *   --fake                 no AI: a stand-in checks the loop works (the numbers mean nothing)
  *
@@ -81,11 +82,13 @@ async function main() {
   const sheet = arg("--sheet");
   if (sheet) {
     sheetCalls = sl.fromSheetCsv(readFileSync(userPath(sheet), "utf8"));
+    if (arg("--sheet-last")) sheetCalls = sl.lastSheetCalls(sheetCalls, intArg("--sheet-last", sheetCalls.length));
     out(`call log sheet: ${sheetCalls.length} calls, ${sheetCalls.filter((c) => c.human).length} with tester ratings or notes`);
   }
   // Real calls replayed on every candidate: the ones testers rated worst first
   const replaySet = [...sheetCalls]
-    .sort((a, b) => (a.human?.overall ?? 6) - (b.human?.overall ?? 6))
+    // testers' 1-5 rating first; else the sheet's AI score (1-10) halved
+    .sort((a, b) => (a.human?.overall ?? (a.aiScore ?? 12) / 2) - (b.human?.overall ?? (b.aiScore ?? 12) / 2))
     .slice(0, maxReplay)
     .map((c) => ({ id: c.id.replace(/[^\w-]/g, "_").slice(0, 40), lines: c.turns.map((t) => t.customer) }));
 
