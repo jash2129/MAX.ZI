@@ -55,7 +55,8 @@ Next.js app (`tavus-avatar/`) for an AWS Summit Sydney booth demo. Real-time con
     once and the rest when it ends; the "was it heard" commit covers the whole reply. If the whole reply
     then fails a check, the approved line (or the script, in free mode) follows the early part. Works with
     Option C and free mode; off = one JSON reply as before. Not yet tried on a live HeyGen call.
-  - `MAX_MODE=free` - Option D: the AI runs the whole call from the full script and knowledge base
+  - `MAX_MODE=free` - Option D, **now the default** (free unless `MAX_MODE=script`; tests stay scripted
+    unless they set it; no AI key = every turn falls to the script): the AI runs the whole call from the full script and knowledge base
     (`src/lib/free-ai.ts`, `processFreeTurn` in `beat-controller.ts`). Code still enforces the price
     ladder ($4 → $3.50 → $3.25 → $3, one step at a time, only from Beat 22), no invented figures or risky
     claims, and the word-for-word recording disclosure; a reply that fails twice, times out

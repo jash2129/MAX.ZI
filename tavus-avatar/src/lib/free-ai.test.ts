@@ -65,11 +65,20 @@ const reply = (p: Partial<FreeReply>): FreeReply => ({ say: "Okay.", beat: 5, en
 const corpus = BEATS.map((b) => b.text).join(" ");
 
 describe("the switch", () => {
-  it("is off unless MAX_MODE=free", () => {
-    delete process.env.MAX_MODE;
-    expect(isFreeAIEnabled()).toBe(false);
-    process.env.MAX_MODE = "free";
-    expect(isFreeAIEnabled()).toBe(true);
+  it("is on by default outside tests; MAX_MODE=script turns it off", () => {
+    const env = process.env.NODE_ENV;
+    try {
+      delete process.env.MAX_MODE;
+      expect(isFreeAIEnabled()).toBe(false); // under the test runner
+      (process.env as Record<string, string>).NODE_ENV = "production";
+      expect(isFreeAIEnabled()).toBe(true);
+      process.env.MAX_MODE = "script";
+      expect(isFreeAIEnabled()).toBe(false);
+      process.env.MAX_MODE = "free";
+      expect(isFreeAIEnabled()).toBe(true);
+    } finally {
+      (process.env as Record<string, string>).NODE_ENV = env!;
+    }
   });
 
   it("the prompt carries the whole script, the price ladder and the disclosure", () => {

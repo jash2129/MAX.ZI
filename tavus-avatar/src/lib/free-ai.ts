@@ -32,8 +32,14 @@ export const LAST_BEAT = 25;
 const MAX_WORDS = 220;
 const HISTORY_MESSAGES = 40;
 
+/**
+ * Free mode is the default: on unless MAX_MODE says otherwise (MAX_MODE=script turns it off). Tests
+ * stay scripted unless they set MAX_MODE=free. Without an AI key every turn falls to the script anyway.
+ */
 export function isFreeAIEnabled(): boolean {
-  return (process.env.MAX_MODE ?? "").trim().toLowerCase() === "free";
+  const mode = (process.env.MAX_MODE ?? "").trim().toLowerCase();
+  if (mode) return mode === "free";
+  return process.env.NODE_ENV !== "test";
 }
 
 export type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
