@@ -208,9 +208,20 @@ export interface GuardContext {
   customerSaid?: string;
   /** Max's last two lines: saying one of them again word for word is a loop */
   recentMax?: string[];
+  /** every line Max has said this call: repeating any longer sentence from them is a loop */
+  earlierMax?: string[];
+  /** the customer just said a plain no ("no", "not interested"), at any beat */
+  customerRefused?: boolean;
+  /** sentences that may be said again word for word (the recording disclosure) */
+  repeatable?: string[];
   /** the dealership's ladder (default: the demo's) */
   ladder?: readonly number[];
 }
+
+const REPEAT_MIN_WORDS = 8;
+const sentencesOf = (t: string) => t.split(/(?<=[.!?])\s+/).map((x) => x.trim()).filter(Boolean);
+/** Wording that confirms the package or treats the customer as having agreed */
+const CONFIRMS = /\b(moving forward with|so to confirm|to confirm,? we|let'?s get (you|that|it|this) (set up|added|started|signed|going)|glad (you'?re|to have you) on board|welcome aboard|(great|smart|good|excellent|wise) (choice|decision)|i'?ll (go ahead and )?(add|get|set up|include) (that|it|the package|the coverage|this)|we'?ll get (that|it|you|this) (added|set up|started)|go ahead and (add|include|set up|lock in)|you'?re all set with|you'?re covered now)\b/i;
 
 const loopKey = (t: string) => t.toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim().slice(0, 90);
 
@@ -248,10 +259,11 @@ export function guardFreeText(t: string, ctx: GuardContext, beat: number, whole:
     }
   }
 
-  // A refusal at the price is never a yes: no confirmation, and above the floor the next lower price
-  // (simulated batch 2026-11-21: "No" at Beat 23 got "so to confirm, we're moving forward with ...")
+  // A no is never a yes, at any beat (simulated batch 2026-11-21: "No" at Beat 23 got "so to confirm,
+  // we're moving forward with ..."; prompt lab 2026-11-23: 10 of 24 calls treated a no as a yes)
+  if ((ctx.refusedPrice || ctx.customerRefused) && CONFIRMS.test(t)) return fail("confirmed the package right after a refusal");
+  // ... and above the floor a no at the price gets the next lower price
   if (ctx.refusedPrice) {
-    if (/\b(moving forward with|so to confirm|to confirm,? we)\b/i.test(t)) return fail("confirmed the package right after a refusal");
     const current = ctx.lowestOffered ?? ladder[0];
     if (whole && current > floorOf(ladder) && !prices.some((p) => p < current)) {
       return fail(`a no at $${current} a day must get the next lower price, $${lowestAllowedPrice(current, ladder)} a day`);
@@ -261,6 +273,17 @@ export function guardFreeText(t: string, ctx: GuardContext, beat: number, whole:
   // Never the same line again word for word (simulated batch 2026-11-21: three loops)
   const key = loopKey(t);
   if (whole && key.length > 20 && (ctx.recentMax ?? []).some((m) => loopKey(m) === key)) return fail("repeats what Max just said");
+  // ... nor any longer sentence already said this call (prompt lab 2026-11-23: one line said five times)
+  if (whole && ctx.earlierMax?.length) {
+    const longKey = (x: string) => {
+      const k = loopKey(x);
+      return k.split(" ").length >= REPEAT_MIN_WORDS ? k : "";
+    };
+    const said = new Set(ctx.earlierMax.flatMap(sentencesOf).map(longKey).filter(Boolean));
+    const allowed = new Set((ctx.repeatable ?? []).flatMap(sentencesOf).map(loopKey));
+    const again = sentencesOf(t).find((x) => said.has(longKey(x)) && !allowed.has(loopKey(x)));
+    if (again) return fail(`repeats a sentence Max already said: "${again.slice(0, 60)}"`);
+  }
 
   // Numbers and claims the script and facts do not make (the customer's own numbers are fine)
   const allowed = new Set(numberTokens(`${ctx.corpus} ${ctx.customerSaid ?? ""} ${ladder.map(spokenPrice).join(" ")}`));

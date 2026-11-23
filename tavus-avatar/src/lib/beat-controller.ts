@@ -2944,6 +2944,9 @@ async function processFreeTurn(
       refusedPrice: pushback,
       customerSaid: [...freeHistory(state).filter((m) => m.role === "user").map((m) => m.content), customerTranscript].join(" "),
       recentMax: freeHistory(state).filter((m) => m.role === "assistant").slice(-2).map((m) => m.content),
+      earlierMax: freeHistory(state).filter((m) => m.role === "assistant").map((m) => m.content),
+      customerRefused: isPlainNo(customerTranscript.toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim()),
+      repeatable: [script.disclosure],
     },
     where: callStateNote({ beat: beatBefore, disclosureGiven: Boolean(state.free_disclosure_given), lowestOffered: state.free_lowest_offer }),
   }, onEarly);

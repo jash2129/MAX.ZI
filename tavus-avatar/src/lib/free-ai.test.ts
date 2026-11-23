@@ -252,6 +252,23 @@ describe("in a call", () => {
     expect(guardFreeReply(reply({ say: last, beat: 25 }), { corpus, beatBefore: 25, lowestOffered: 3, recentMax: [last] }).reason).toBe("repeats what Max just said");
   });
 
+  it("repeating any longer sentence from earlier in the call is rejected; short ones and the disclosure are not", () => {
+    const earlier = ["Good question. I don't want to guess on that one, and the contract paperwork spells it out for you.", "Okay, great."];
+    const ctx = { corpus, beatBefore: 8, lowestOffered: null, earlierMax: earlier, repeatable: ["This call is recorded for quality and training purposes, is that okay with you?"] };
+    const loop = reply({ say: "Sure thing. I don't want to guess on that one, and the contract paperwork spells it out for you.", beat: 8 });
+    expect(guardFreeReply(loop, ctx).reason).toMatch(/^repeats a sentence Max already said/);
+    expect(guardFreeReply(reply({ say: "Okay, great. Let's keep going.", beat: 8 }), ctx).ok).toBe(true);
+    const disclosure = reply({ say: "This call is recorded for quality and training purposes, is that okay with you?", beat: 1 });
+    expect(guardFreeReply(disclosure, { ...ctx, beatBefore: 1, earlierMax: [disclosure.say] }).ok).toBe(true);
+  });
+
+  it("a plain no is never answered as a yes, at any beat", () => {
+    const ctx = { corpus, beatBefore: 12, lowestOffered: null, customerRefused: true };
+    expect(guardFreeReply(reply({ say: "Great choice, let's get you set up with the coverage.", beat: 12 }), ctx).reason).toBe("confirmed the package right after a refusal");
+    expect(guardFreeReply(reply({ say: "No problem at all. What's holding you back?", beat: 12 }), ctx).ok).toBe(true);
+    expect(guardFreeReply(reply({ say: "Great choice, let's get you set up with the coverage.", beat: 12 }), { ...ctx, customerRefused: false }).ok).toBe(true);
+  });
+
   it("a refusal after the final choice at three dollars: the script keeps the factory warranty", async () => {
     aiReplies({ say: "At three dollars a day, would you like to go ahead, or keep just your factory warranty?", beat: 23 });
     const sid = newCall(23, { lowest: 3 });
