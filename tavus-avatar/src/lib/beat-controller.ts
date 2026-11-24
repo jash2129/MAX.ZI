@@ -24,6 +24,8 @@ import {
 import {
   isNativeEnabled,
   isNativePushback,
+  agentSettings,
+  agentText,
   buildNativeSystemPrompt,
   runNativeTurn,
   nativeStateNote,
@@ -2915,7 +2917,11 @@ function freeScript(dealConfig: DealConfig) {
 }
 
 function freeHistory(state: CallState): ChatMessage[] {
-  return (state.free_history ??= [{ role: "assistant", content: L.STEP_0_GREETING }]);
+  return (state.free_history ??= [{ role: "assistant", content: greetingOf(state.dealConfig) }]);
+}
+/** Max's first line: the agent's greeting (portal Agent page), else the built-in one */
+export function greetingOf(dealConfig: DealConfig): string {
+  return agentSettings(dealConfig.agent).greeting || L.STEP_0_GREETING;
 }
 /** Record a turn in the AI's view of the call (also when the script or a reprompt took a turn) */
 function pushFree(state: CallState, customer: string, max: string): void {
@@ -3069,10 +3075,12 @@ const NATIVE_PRICE_MARK = 22;
 const NATIVE_ACCEPTED_MARK = 23;
 
 function nativeData(dealConfig: DealConfig) {
+  const agent = agentSettings(dealConfig.agent);
   const disclosure = currentContent().builtIn ? FREE_DISCLOSURE : callDisclosure();
   // The approved pitch material: every beat's words except the disclosure and the price/close mechanics
-  // (the price, "which two", the confirmation, the paperwork), which the ladder and the prompt cover
-  const talkingPoints = scriptBeats()
+  // (the price, "which two", the confirmation, the paperwork), which the ladder and the prompt cover.
+  // Off on the Agent page: the agent works from its context and documents only.
+  const talkingPoints = (agent.scriptTalkingPoints ? scriptBeats() : [])
     .filter((b) => b.id > 1 && b.id < PRICE_BEAT)
     .map((b) => formatSpeechText(renderBeatText(b, dealConfig)))
     .filter(Boolean);
@@ -3082,10 +3090,21 @@ function nativeData(dealConfig: DealConfig) {
   const vehicle = `${dealConfig.vehicle_year} ${dealConfig.vehicle_make} ${dealConfig.vehicle_model}`.trim();
   // What the guard accepts as approved wording: every beat, also the price and close lines left out of
   // the talking points ("everything is covered" is in the approved price line)
-  const approvedText = scriptBeats()
+  const approvedText = `${(agent.scriptTalkingPoints ? scriptBeats() : [])
     .map((b) => formatSpeechText(renderBeatText(b, dealConfig)))
-    .join(" ");
-  return { vehicle, talkingPoints, facts, disclosure, ladder: ladderOf(dealConfig), approvedText };
+    .join(" ")} ${agentText(agent)}`;
+  return {
+    vehicle,
+    talkingPoints,
+    facts,
+    disclosure,
+    ladder: ladderOf(dealConfig),
+    approvedText,
+    context: agent.context,
+    docs: agent.docs,
+    priceLadder: agent.priceLadder,
+    disclosureOn: agent.disclosure,
+  };
 }
 
 /** A price Max said: the lowest offered so far (the guard allows one step below it, after pushback) */
@@ -3158,7 +3177,12 @@ async function processNativeTurn(
   if (refused && state.free_disclosure_given) state.native_refusals = (state.native_refusals ?? 0) + 1;
 
   const data = nativeData(state.dealConfig);
-  const disclosureGiven = Boolean(state.free_disclosure_given);
+  // Disclosure switched off on the Agent page: there is nothing owed
+  const disclosureGiven = !data.disclosureOn || Boolean(state.free_disclosure_given);
+  if (!data.disclosureOn && !state.step0_completed) {
+    state.step0_completed = true;
+    state.current_beat = Math.max(state.current_beat, 1);
+  }
   const customerSaid = [...history.filter((m) => m.role === "user").map((m) => m.content), customerTranscript].join(" ");
   const outcome = await runNativeTurn(
     {
@@ -3166,7 +3190,7 @@ async function processNativeTurn(
       history,
       customer: customerTranscript,
       guard: {
-        corpus: `${data.approvedText} ${data.facts} ${data.vehicle} ${L.STEP_0_GREETING} ${L.CLOSING_LINE}`,
+        corpus: `${data.approvedText} ${data.facts} ${data.vehicle} ${greetingOf(state.dealConfig)} ${L.CLOSING_LINE}`,
         disclosure: data.disclosure,
         disclosureGiven,
         lowestOffered: state.free_lowest_offer,
@@ -3175,8 +3199,17 @@ async function processNativeTurn(
         refused,
         customerSaid,
         earlierMax,
+        ladderOn: data.priceLadder,
+        disclosureOn: data.disclosureOn,
       },
-      where: nativeStateNote({ disclosureGiven, lowestOffered: state.free_lowest_offer, ladder: data.ladder, refusals: state.native_refusals ?? 0 }),
+      where: nativeStateNote({
+        disclosureGiven,
+        lowestOffered: state.free_lowest_offer,
+        ladder: data.ladder,
+        refusals: state.native_refusals ?? 0,
+        priceLadder: data.priceLadder,
+        disclosureOn: data.disclosureOn,
+      }),
     },
     onEarly
   );
@@ -3191,7 +3224,7 @@ async function processNativeTurn(
       state.current_beat = Math.max(state.current_beat, 1);
     }
     const say = outcome.early ? `${outcome.early} ${n.text}` : n.text;
-    const spoken = outcome.early ? dailyPricesIn(outcome.early) : [];
+    const spoken = outcome.early && data.priceLadder ? dailyPricesIn(outcome.early) : [];
     if (spoken.length) recordNativePrice(state, spoken, data.ladder);
     console.log(JSON.stringify({ event: "native_fallback", sessionId, reason: outcome.reason }));
     return finish(say, { ending: false, mode: "neutral", reason: outcome.reason, ms: outcome.ms, attempts: outcome.attempts });
@@ -3213,11 +3246,13 @@ async function processNativeTurn(
   }
 
   const toolCalls: ControllerDecision["toolCalls"] = [];
-  if (prices.length) {
+  if (prices.length && data.priceLadder) {
     recordNativePrice(state, prices, data.ladder);
     toolCalls.push({ name: "show_payment_breakdown", args: { daily_rate: Math.min(...prices) } });
   }
-  const tag = settleOutcome(reply, { refused, priceOffered: state.free_lowest_offer !== null && state.free_lowest_offer !== undefined });
+  // Without a price ladder there is no price to have been offered: a clear yes is enough
+  const priceOffered = !data.priceLadder || (state.free_lowest_offer !== null && state.free_lowest_offer !== undefined);
+  const tag = settleOutcome(reply, { refused, priceOffered });
   if (tag === "accepted" && !state.package_declined) {
     state.finalize_confirmed = true;
     state.current_beat = Math.max(state.current_beat, NATIVE_ACCEPTED_MARK);

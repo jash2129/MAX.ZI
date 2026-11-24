@@ -1422,11 +1422,13 @@ export function LiveAvatarDemo() {
       roomRef.current = room;
 
       let greetingSent = false;
+      // The dealership's approved greeting arrives with the chat route's warmup (below); until then the built-in one
+      let approvedGreeting = "Can you hear and see me alright?";
       const triggerSpokenGreeting = (delay = 1800) => {
         if (greetingSent) return;
         greetingSent = true;
         setTimeout(() => {
-          const greeting = "Can you hear and see me alright?";
+          const greeting = approvedGreeting;
           setCurrentReplicaText(greeting);
           conversationHistoryRef.current = [{ role: "assistant", content: greeting }];
           setMessages([{ role: "assistant", content: greeting }]);
@@ -1519,7 +1521,10 @@ export function LiveAvatarDemo() {
         body: JSON.stringify({ action: "warmup" }),
       })
         .then((r) => r.json())
-        .then((w) => logTurnEvent({ ts: new Date().toISOString(), event: "chat_route_warmed", routeMs: w?.routeMs }))
+        .then((w) => {
+          if (typeof w?.greeting === "string" && w.greeting.trim()) approvedGreeting = w.greeting.trim();
+          logTurnEvent({ ts: new Date().toISOString(), event: "chat_route_warmed", routeMs: w?.routeMs });
+        })
         .catch(() => {});
       setIsConnected(true);
       isConnectedRef.current = true;

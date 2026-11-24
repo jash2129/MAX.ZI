@@ -6,6 +6,7 @@ import { RECAP_BEATS } from "./beat-controller";
 import { validateKnowledge, validateScript, type CallScript, type KnowledgeBase } from "./call-content";
 import type { DealConfig } from "./deal-config";
 import { isValidLadder } from "./price-ladder";
+import { agentProblems, agentSettings, normalizeAgent } from "./native-engine";
 
 /**
  * The dealership's approved content from the portal, for the call app: the LIVE script version (with
@@ -27,10 +28,10 @@ const CONNECT_TIMEOUT_MS = 6_000;
 const QUERY_TIMEOUT_MS = 3_000;
 
 /** What the portal's live versions set on a call */
-export type LiveOverrides = Pick<DealConfig, "script" | "knowledge" | "price_ladder" | "free_prompt" | "native_prompt">;
+export type LiveOverrides = Pick<DealConfig, "script" | "knowledge" | "price_ladder" | "free_prompt" | "native_prompt" | "agent">;
 
 export interface LiveRows {
-  script?: { version: number; beats: unknown; disclosure: string; fixed_lines: unknown; recaps: unknown; free_prompt: string | null; native_prompt?: string | null };
+  script?: { version: number; beats: unknown; disclosure: string; fixed_lines: unknown; recaps: unknown; free_prompt: string | null; native_prompt?: string | null; agent?: unknown };
   price?: { version: number; steps: Array<string | number> };
   kb?: { version: number; facts: unknown };
   shared: Array<{ topic: string; answer: string; keywords: string[] | null }>;
@@ -42,6 +43,8 @@ export interface LiveConfigStatus {
   versions?: { script: number | null; price: number | null; kb: number | null };
   freePrompt?: "portal" | "built-in";
   nativePrompt?: "portal" | "built-in";
+  /** the Agent page's settings: whether any are set, and the guardrail switches */
+  agent?: { set: boolean; priceLadder: boolean; disclosure: boolean; scriptTalkingPoints: boolean; docs: number };
   error?: string;
 }
 
@@ -66,6 +69,9 @@ export function toLiveOverrides(rows: LiveRows): { overrides: LiveOverrides } | 
   const knowledge: KnowledgeBase = { facts: [...((rows.kb.facts ?? []) as KnowledgeBase["facts"]), ...shared] };
   const kbProblem = validateKnowledge(knowledge);
   if (kbProblem) return { problem: `live knowledge base: ${kbProblem}` };
+  const agent = normalizeAgent(rows.script.agent);
+  const agentProblem = agentProblems(agent)[0];
+  if (agentProblem) return { problem: `live agent settings: ${agentProblem}` };
   return {
     overrides: {
       script,
@@ -73,8 +79,14 @@ export function toLiveOverrides(rows: LiveRows): { overrides: LiveOverrides } | 
       price_ladder: ladder,
       ...(rows.script.free_prompt ? { free_prompt: rows.script.free_prompt } : {}),
       ...(rows.script.native_prompt ? { native_prompt: rows.script.native_prompt } : {}),
+      ...(Object.keys(agent).length ? { agent } : {}),
     },
   };
+}
+
+function agentStatus(raw: unknown): NonNullable<LiveConfigStatus["agent"]> {
+  const a = agentSettings(raw);
+  return { set: Object.keys(normalizeAgent(raw)).length > 0, priceLadder: a.priceLadder, disclosure: a.disclosure, scriptTalkingPoints: a.scriptTalkingPoints, docs: a.docs.length };
 }
 
 let pool: Pool | undefined;
@@ -94,7 +106,7 @@ async function loadRows(url: string, dealership: string): Promise<LiveRows> {
     await client.query("set local role brain_service");
     const one = async <T extends Record<string, unknown>>(sql: string) => (await client.query<T>(sql, [dealership])).rows[0];
     const script = await one<NonNullable<LiveRows["script"]>>(
-      "select version, beats, disclosure, fixed_lines, recaps, free_prompt, native_prompt from script_version where dealership_id = $1 and status = 'live'"
+      "select version, beats, disclosure, fixed_lines, recaps, free_prompt, native_prompt, agent from script_version where dealership_id = $1 and status = 'live'"
     );
     const price = await one<NonNullable<LiveRows["price"]>>("select version, steps from price_ladder_version where dealership_id = $1 and status = 'live'");
     const kb = await one<NonNullable<LiveRows["kb"]>>("select version, facts from kb_version where dealership_id = $1 and status = 'live'");
@@ -124,7 +136,7 @@ async function refresh(now: number): Promise<NonNullable<typeof cache>> {
       cache = {
         at: now,
         overrides: r.overrides,
-        status: { source: "portal", dealership: cfg.dealership, versions, freePrompt: r.overrides.free_prompt ? "portal" : "built-in", nativePrompt: r.overrides.native_prompt ? "portal" : "built-in" },
+        status: { source: "portal", dealership: cfg.dealership, versions, freePrompt: r.overrides.free_prompt ? "portal" : "built-in", nativePrompt: r.overrides.native_prompt ? "portal" : "built-in", agent: agentStatus(r.overrides.agent) },
       };
     }
   } catch (err) {

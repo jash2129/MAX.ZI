@@ -4,10 +4,16 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { engineOf, getOrCreateCallState, processControllerTurn, resetCallState, FREE_DISCLOSURE } from "./beat-controller";
+import { engineOf, getOrCreateCallState, greetingOf, processControllerTurn, resetCallState, FREE_DISCLOSURE } from "./beat-controller";
 import { DEFAULT_DEAL_CONFIG, clientDealConfig } from "./deal-config";
 import { isFreeAIEnabled } from "./free-ai";
 import {
+  AGENT_LIMITS,
+  agentProblems,
+  agentSettings,
+  moneyMentions,
+  normalizeAgent,
+  type AgentConfig,
   DEFAULT_NATIVE_PROMPT,
   NEUTRAL_LINES,
   buildNativeSystemPrompt,
@@ -271,8 +277,100 @@ describe("a call on the native engine", () => {
     expect([NEUTRAL_LINES[0], NEUTRAL_LINES[1]]).not.toContain(n.text);
   });
 
+  it("the default prompt reads like a persona, not a script (and no fixed greeting)", () => {
+    expect(DEFAULT_NATIVE_PROMPT).not.toContain("Can you hear and see me");
+  });
+
   it("the default prompt reads like a persona, not a script", () => {
     for (const h of ["# Persona", "# Goal", "# Guidelines", "# Tone"]) expect(DEFAULT_NATIVE_PROMPT).toContain(h);
     expect(DEFAULT_NATIVE_PROMPT).not.toMatch(/\bBeat\b/);
+  });
+});
+
+describe("the agent (portal Agent page)", () => {
+  const agentCall = (agent: AgentConfig, opts: { disclosed?: boolean } = {}) => {
+    const sid = newCall({ disclosed: opts.disclosed });
+    getOrCreateCallState(sid).dealConfig.agent = agent;
+    return sid;
+  };
+
+  it("settings are tidied; defaults keep every guardrail on", () => {
+    expect(normalizeAgent({ context: "  hi \r\n there ", docs: [{ title: " ", text: " " }, { title: "A", text: "x" }], guardrails: { price_ladder: false, junk: 1 } })).toEqual({
+      context: "hi \n there",
+      docs: [{ title: "A", text: "x" }],
+      guardrails: { price_ladder: false },
+    });
+    expect(agentSettings(undefined)).toMatchObject({ priceLadder: true, disclosure: true, scriptTalkingPoints: true, greeting: "", docs: [] });
+  });
+
+  it("what can't be saved: a priced or risky greeting, oversize text, untitled or empty documents", () => {
+    expect(agentProblems({})).toEqual([]);
+    expect(agentProblems({ greeting: "Hi! Our plan is four dollars a day." }).join()).toMatch(/greeting names a price/);
+    expect(agentProblems({ greeting: "Hi, I'm a real person from the dealership." }).join()).toMatch(/greeting adds the claim/);
+    expect(agentProblems({ context: "x".repeat(AGENT_LIMITS.context + 1) }).join()).toMatch(/context is longer/);
+    expect(agentProblems({ docs: [{ title: "", text: "text" }] }).join()).toMatch(/needs a title/);
+    expect(agentProblems({ docs: [{ title: "Rates", text: "" }] }).join()).toMatch(/"Rates" is empty/);
+  });
+
+  it("context and documents go to the AI as data; switched-off sections are left out", async () => {
+    aiReplies({ say: "Happy to help. What are you looking for today?", outcome: "open" });
+    await say(agentCall({ context: "We sell solar panels in Austin.", docs: [{ title: "Warranty", text: "Panels carry a 25 year warranty." }], guardrails: { price_ladder: false, disclosure: false, script_talking_points: false } }), "Hi");
+    const sys = sentSystemPrompt();
+    expect(sys).toContain("Context:\nWe sell solar panels in Austin.");
+    expect(sys).toContain("Document: Warranty\nPanels carry a 25 year warranty.");
+    expect(sys).not.toContain("Price ladder");
+    expect(sys).not.toContain("Recording disclosure");
+    expect(sys).not.toContain("Talking points");
+  });
+
+  it("numbers from the documents may be said; numbers from nowhere may not", async () => {
+    aiReplies({ say: "The panels carry a 25 year warranty.", outcome: "open" });
+    const agent: AgentConfig = { docs: [{ title: "Warranty", text: "Panels carry a 25 year warranty." }], guardrails: { disclosure: false } };
+    expect((await say(agentCall(agent), "How long is the warranty?")).metrics?.mode).toBe("native");
+    aiReplies({ say: "The panels carry a 30 year warranty.", outcome: "open" });
+    expect((await say(agentCall(agent), "How long is the warranty?")).metrics?.mode).toBe("neutral");
+  });
+
+  it("price ladder off: an amount from the documents is fine, a made-up one is not, and nothing is tracked as an offer", async () => {
+    const agent: AgentConfig = { docs: [{ title: "Pricing", text: "Installation costs 9,500 dollars." }], guardrails: { price_ladder: false, disclosure: false } };
+    aiReplies({ say: "Installation costs 9,500 dollars.", outcome: "open" });
+    const sid = agentCall(agent);
+    expect((await say(sid, "What does it cost?")).metrics?.mode).toBe("native");
+    expect(getOrCreateCallState(sid).free_lowest_offer ?? null).toBeNull();
+    aiReplies({ say: "It's only two dollars a day.", outcome: "open" });
+    expect((await say(agentCall(agent), "What does it cost?")).metrics?.mode).toBe("neutral");
+  });
+
+  it("price ladder off: a clear yes is accepted without a ladder price; a no still is never a yes", async () => {
+    aiReplies({ say: "Wonderful, I'll note that down. What's the best email for the paperwork?", outcome: "accepted" });
+    const sid = agentCall({ guardrails: { price_ladder: false, disclosure: false } });
+    await say(sid, "Yes, let's do it.");
+    expect(getOrCreateCallState(sid).finalize_confirmed).toBe(true);
+    aiReplies({ say: "Great choice, let's get you set up.", outcome: "accepted" });
+    const no = agentCall({ guardrails: { price_ladder: false, disclosure: false } });
+    const d = await say(no, "No, I'm not interested.");
+    expect(d.metrics?.mode).toBe("neutral");
+    expect(getOrCreateCallState(no).finalize_confirmed).toBeFalsy();
+  });
+
+  it("disclosure off: never added by code; the agent's greeting opens the AI's view of the call", async () => {
+    aiReplies({ say: "Doing well, thanks! How can I help?", outcome: "open" }, { say: "Sure thing. What matters most to you?", outcome: "open" });
+    const sid = agentCall({ greeting: "Hi, this is Max from Sunrise Solar!", guardrails: { disclosure: false } });
+    await say(sid, "Hi Max");
+    const d = await say(sid, "Tell me more");
+    expect(d.textToSpeak).not.toContain(FREE_DISCLOSURE);
+    const msgs = JSON.parse(fetchMock.mock.calls.at(-1)![1].body).messages;
+    expect(msgs[1]).toEqual({ role: "assistant", content: "Hi, this is Max from Sunrise Solar!" });
+    expect(greetingOf(getOrCreateCallState(sid).dealConfig)).toBe("Hi, this is Max from Sunrise Solar!");
+  });
+});
+
+describe("money in the agent's own documents", () => {
+  it("'$9,500' and '9,500 dollars' are the same amount; a new amount is not", () => {
+    const c = { corpus: "Installation costs 9,500 dollars.", disclosure: FREE_DISCLOSURE, disclosureGiven: true, lowestOffered: null, ladder: [], pushback: false, refused: false, customerSaid: "", earlierMax: [], ladderOn: false };
+    expect(guardNativeText("Installation is $9,500.", c, true).ok).toBe(true);
+    expect(guardNativeText("Installation is $8,000.", c, true).ok).toBe(false);
+    expect(guardNativeText("Installation is nine dollars.", { ...c, corpus: "Installation costs 9,500 dollars. Nine steps." }, true).reason).toMatch(/not in the approved content/);
+    expect(moneyMentions("about $9,500 or 9,500 dollars").values).toEqual(new Set([9500]));
   });
 });

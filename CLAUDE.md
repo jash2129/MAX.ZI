@@ -69,6 +69,17 @@ Next.js app (`tavus-avatar/`) for an AWS Summit Sydney booth demo. Real-time con
     the retry continues from it); then a neutral line, NEVER the script (`NEUTRAL_LINES`, or the
     disclosure if still owed). `NATIVE_AI_TIMEOUT_MS` (default 5 s), `NATIVE_AI_MODEL` optional.
     Compare engines in the prompt lab: `npm run prompt-lab -- --a free:builtin --b native:builtin`.
+    **Agent settings** (portal Agent page, `/d/<id>/agent`; `DealConfig.agent`, `AgentConfig` in
+    native-engine.ts; stored in `script_version.agent`, migration 014): free-form context, a greeting
+    (said word for word; checked for prices and risky claims when saved; the call app gets it from the
+    chat route's warmup), knowledge documents (title + text, pasted or uploaded as text files), and
+    guardrail switches, all default on: `price_ladder` (off: no ladder; every money amount must appear
+    as money in the approved text, `moneyMentions`), `disclosure`, `script_talking_points` (off: no
+    beats in the prompt). Always on: no new numbers or claims, never claims to be human, a no is never
+    a yes, no repeated sentences. The Agent page's **test chat** (`/api/agent-test`,
+    `services/portal/src/server/agent-test.ts`) runs real native turns on any version the person can
+    read (draft included); the browser keeps only the call state, the content is always reloaded from
+    the database. Needs `OPENAI_API_KEY` (and `AI_PROVIDER=openai`) on the portal's host.
   - `MAX_MODE=free` - Option D (only when set): the AI runs the whole call from the full script and knowledge base
     (`src/lib/free-ai.ts`, `processFreeTurn` in `beat-controller.ts`). Code still enforces the price
     ladder ($4 → $3.50 → $3.25 → $3, one step at a time, only from Beat 22), no invented figures or risky

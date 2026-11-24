@@ -2,7 +2,8 @@ import type { NextConfig } from "next";
 
 const config: NextConfig = {
   // The portal runs the controller (release gate) and the control plane's db helpers from sibling folders
-  experimental: { externalDir: true },
+  // Agent page: knowledge documents are uploaded with the form (text files, at most 1 MB each)
+  experimental: { externalDir: true, serverActions: { bodySizeLimit: "4mb" } },
   serverExternalPackages: ["pg"],
   // The build checks the app only: tests use packages (PGlite, vitest) a host build doesn't install
   typescript: { tsconfigPath: "tsconfig.build.json" },

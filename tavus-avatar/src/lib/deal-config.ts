@@ -1,5 +1,7 @@
 import type { CallScript, KnowledgeBase } from "./call-content";
 
+import type { AgentConfig } from "./native-engine";
+
 export interface DealConfig {
   dealership_name?: string;
   vehicle_year: string;
@@ -26,6 +28,11 @@ export interface DealConfig {
    * behavior only (the approved content is appended by code). Unset = DEFAULT_NATIVE_PROMPT.
    */
   native_prompt?: string;
+  /**
+   * The agent (portal Agent page, native engine only): context, greeting, knowledge documents and the
+   * guardrail switches. Unset = the built-in behavior. Server-side only, never from the browser.
+   */
+  agent?: AgentConfig;
   /**
    * Which engine runs this call, overriding MAX_MODE (server-side only; clientDealConfig never copies
    * it from the browser). Used by the prompt lab to run two engines side by side.

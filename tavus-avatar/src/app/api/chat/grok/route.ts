@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { processClientTurn, commitTurn, repromptText, type ControllerDecision } from "@/lib/beat-controller";
+import { processClientTurn, commitTurn, repromptText, greetingOf, type ControllerDecision } from "@/lib/beat-controller";
 import { clientDealConfig } from "@/lib/deal-config";
 import { liveOverrides } from "@/lib/live-config";
 import { loadSession, saveSession } from "@/lib/session-store";
@@ -42,7 +42,9 @@ export async function POST(request: Request) {
 
     // Called once at session start so the first real turn does not pay for a cold route/module load
     if (body.action === "warmup") {
-      return NextResponse.json({ ok: true, routeMs: Date.now() - routeStart, streaming: streamingEnabled() });
+      // Max's first line: the approved agent greeting (portal Agent page), else the built-in one
+      const greeting = greetingOf({ ...clientDealConfig(undefined), ...((await liveOverrides()) ?? {}) });
+      return NextResponse.json({ ok: true, routeMs: Date.now() - routeStart, streaming: streamingEnabled(), greeting });
     }
     const { messages = [], sessionId = "live_session", clientBeatId, turnId = 0 } = body;
     // Prices never come from the browser: only the vehicle and dealership name may be overridden.

@@ -98,5 +98,6 @@ function toDealershipConfig(live: LiveDealershipConfig): DealershipConfig {
     knowledge: knowledgeOf(live),
     ...(live.script?.free_prompt ? { free_prompt: live.script.free_prompt } : {}),
     ...(live.script?.native_prompt ? { native_prompt: live.script.native_prompt } : {}),
+    ...(live.script?.agent && Object.keys(live.script.agent).length ? { agent: live.script.agent } : {}),
   };
 }

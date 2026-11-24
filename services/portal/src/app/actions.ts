@@ -25,6 +25,7 @@ import {
   removeWebhook,
   rollbackTo,
   runGate,
+  saveAgentDraft,
   saveDraft,
   setStatus,
   setWebhook,
@@ -197,6 +198,70 @@ export async function saveDraftAction(form: FormData) {
     }
     await saveDraft(db, p.id, kind, id, content, str(form, "notes"));
     return `${versionPage(d, kind, id)}?saved=1`;
+  });
+}
+
+// ---------------------------------------------------------------------------------------------------
+// The Agent page
+// ---------------------------------------------------------------------------------------------------
+
+const TEXT_FILE = /\.(txt|md|markdown|csv|json|tsv|html?)$/i;
+const MAX_FILE_BYTES = 1_000_000;
+
+/** Max's prompt and the agent settings of a script draft: context, greeting, documents, guardrails */
+export async function saveAgentAction(form: FormData) {
+  const p = await requirePerson();
+  const d = str(form, "dealership");
+  const id = str(form, "version");
+  const back = `/d/${encodeURIComponent(d)}/agent?v=${encodeURIComponent(id)}`;
+  await act(back, async () => {
+    // Existing documents: kept unless ticked for removal (their text may have been edited)
+    const docs: Array<{ title: string; text: string }> = [];
+    for (let i = 0; form.has(`doc_title_${i}`); i++) {
+      if (form.get(`doc_remove_${i}`)) continue;
+      docs.push({ title: str(form, `doc_title_${i}`), text: String(form.get(`doc_text_${i}`) ?? "") });
+    }
+    // A pasted document
+    const pastedTitle = str(form, "new_doc_title");
+    const pastedText = String(form.get("new_doc_text") ?? "").trim();
+    if (pastedTitle || pastedText) docs.push({ title: pastedTitle || "Pasted document", text: pastedText });
+    // Uploaded text files (one document each, titled by file name)
+    for (const f of form.getAll("new_doc_files")) {
+      if (!(f instanceof File) || !f.size) continue;
+      if (!TEXT_FILE.test(f.name)) throw new PortalError(`"${f.name}": upload text files only (.txt, .md, .csv, .json, .html). For a PDF or Word file, copy its text into "Paste a document".`);
+      if (f.size > MAX_FILE_BYTES) throw new PortalError(`"${f.name}" is larger than 1 MB.`);
+      docs.push({ title: f.name.replace(/\.[^.]+$/, ""), text: await f.text() });
+    }
+    await saveAgentDraft(
+      portalDb(),
+      p.id,
+      id,
+      {
+        native_prompt: String(form.get("native_prompt") ?? ""),
+        agent: {
+          context: String(form.get("context") ?? ""),
+          greeting: str(form, "greeting"),
+          docs,
+          guardrails: {
+            price_ladder: form.get("guard_price_ladder") === "on",
+            disclosure: form.get("guard_disclosure") === "on",
+            script_talking_points: form.get("guard_script_talking_points") === "on",
+          },
+        },
+      },
+      str(form, "notes") || undefined
+    );
+    return `${back}&saved=1`;
+  });
+}
+
+/** A new script draft from the live version, opened on the Agent page */
+export async function newAgentDraftAction(form: FormData) {
+  const p = await requirePerson();
+  const d = str(form, "dealership");
+  await act(`/d/${encodeURIComponent(d)}/agent`, async () => {
+    const id = await createDraft(portalDb(), p.id, d, "script");
+    return `/d/${encodeURIComponent(d)}/agent?v=${encodeURIComponent(id)}&created=1`;
   });
 }
 

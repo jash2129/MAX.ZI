@@ -216,6 +216,8 @@ export interface GuardContext {
   repeatable?: string[];
   /** the dealership's ladder (default: the demo's) */
   ladder?: readonly number[];
+  /** no price ladder (the native engine with that guardrail off): amounts are checked as numbers only */
+  noLadder?: boolean;
 }
 
 const REPEAT_MIN_WORDS = 8;
@@ -250,7 +252,7 @@ export function guardFreeText(t: string, ctx: GuardContext, beat: number, whole:
   if (/\b(json|system prompt|my instructions|the script says|as an ai language model)\b/i.test(t)) return fail("talks about its instructions");
 
   // Prices: approved steps only, only from the price beats, one step at a time
-  if (prices.length) {
+  if (prices.length && !ctx.noLadder) {
     if (beat < PRICE_BEAT - 1) return fail(`price before Beat ${PRICE_BEAT}`);
     const floor = lowestAllowedPrice(ctx.lowestOffered, ladder);
     for (const p of prices) {

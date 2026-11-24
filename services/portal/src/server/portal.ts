@@ -13,14 +13,14 @@ import { DEFAULT_FREE_PROMPT } from "../../../../tavus-avatar/src/lib/free-ai";
 import { isValidLadder } from "../../../../tavus-avatar/src/lib/price-ladder";
 import { runReleaseGate } from "../../../../tavus-avatar/src/lib/release-gate";
 import { freePromptProblems } from "../../../../tavus-avatar/src/lib/self-learn";
-import { DEFAULT_NATIVE_PROMPT, nativePromptProblems } from "../../../../tavus-avatar/src/lib/native-engine";
+import { DEFAULT_NATIVE_PROMPT, agentProblems, nativePromptProblems, normalizeAgent, type AgentConfig } from "../../../../tavus-avatar/src/lib/native-engine";
 import { asService, asUser, type Db, type Queryable } from "../../../control-plane/src/db";
 
 export type Kind = "script" | "price" | "kb";
 export const KINDS: Kind[] = ["script", "price", "kb"];
 const TABLE: Record<Kind, string> = { script: "script_version", price: "price_ladder_version", kb: "kb_version" };
 const CONTENT_COLUMNS: Record<Kind, string> = {
-  script: "beats, disclosure, fixed_lines, recaps, free_prompt, native_prompt",
+  script: "beats, disclosure, fixed_lines, recaps, free_prompt, native_prompt, agent",
   price: "steps, products",
   kb: "facts",
 };
@@ -207,6 +207,10 @@ export function contentProblem(kind: Kind, content: Record<string, unknown>): st
     const problems = nativePromptProblems(native);
     if (problems.length) return `Max's prompt: ${problems.join("; ")}.`;
   }
+  if (content.agent !== undefined) {
+    const problems = agentProblems(content.agent);
+    if (problems.length) return `Agent: ${problems.join("; ")}.`;
+  }
   return validateScript(
     { beats: content.beats, disclosure: content.disclosure, fixed_lines: content.fixed_lines ?? {}, recaps: content.recaps ?? {} } as CallScript,
     RECAP_BEATS
@@ -252,6 +256,7 @@ export async function saveDraft(db: Db, userId: string, kind: Kind, versionId: s
       add("recaps", JSON.stringify(content.recaps ?? {}));
       if (content.free_prompt !== undefined) add("free_prompt", freePromptOf(content));
       if (content.native_prompt !== undefined) add("native_prompt", nativePromptOf(content));
+      if (content.agent !== undefined) add("agent", JSON.stringify(normalizeAgent(content.agent)));
     }
     if (notes !== undefined) add("notes", notes);
     const r = await tx.query(`update ${TABLE[kind]} set ${sets.join(", ")} where id = $1 and status = 'draft' returning id`, params);
@@ -304,7 +309,46 @@ async function callConfigFor(tx: Queryable, dealershipId: string, kind: Kind, ov
     knowledge: { facts: kb.facts } as KnowledgeBase,
     ...(script.free_prompt ? { free_prompt: script.free_prompt } : {}),
     ...(script.native_prompt ? { native_prompt: script.native_prompt } : {}),
+    ...(script.agent && Object.keys(script.agent).length ? { agent: normalizeAgent(script.agent) } : {}),
   };
+}
+
+// ---------------------------------------------------------------------------------------------------
+// The Agent page: Max's prompt and the agent settings of a script draft, and test calls on any version
+// ---------------------------------------------------------------------------------------------------
+
+/** Saves only Max's prompt and the agent settings of a draft (the beats and lines stay as they are) */
+export async function saveAgentDraft(db: Db, userId: string, versionId: string, input: { native_prompt: string; agent: AgentConfig }, notes?: string): Promise<void> {
+  const prompt = nativePromptOf({ native_prompt: input.native_prompt });
+  if (prompt) {
+    const problems = nativePromptProblems(prompt);
+    if (problems.length) throw new PortalError(`Max's prompt: ${problems.join("; ")}.`);
+  }
+  const agent = normalizeAgent(input.agent);
+  const problems = agentProblems(agent);
+  if (problems.length) throw new PortalError(`Agent: ${problems.join("; ")}.`);
+  await run(db, userId, async (tx) => {
+    const params: unknown[] = [versionId, prompt, JSON.stringify(agent)];
+    let sql = "update script_version set native_prompt = $2, agent = $3";
+    if (notes !== undefined) {
+      params.push(notes);
+      sql += ", notes = $4";
+    }
+    const r = await tx.query(`${sql} where id = $1 and status = 'draft' returning id`, params);
+    if (!r.rows.length) throw new PortalError("Only a draft can be edited, by a manager of this dealership.");
+  });
+}
+
+/**
+ * The call config a test chat runs on: this script version (any status the person can read) with the
+ * dealership's live price ladder and knowledge base, on the prompt-native engine.
+ */
+export async function agentTestConfig(db: Db, userId: string, versionId: string): Promise<DealConfig> {
+  return run(db, userId, async (tx) => {
+    const v = (await tx.query<any>(`select dealership_id, ${CONTENT_COLUMNS.script} from script_version where id = $1`, [versionId])).rows[0];
+    if (!v) throw new PortalError("No such version, or you don't have access to it.");
+    return { ...(await callConfigFor(tx, v.dealership_id, "script", v)), engine: "native" as const };
+  });
 }
 
 /** Runs the gate on a version in test and records the result (as the test gate). Editors may run it. */
@@ -356,6 +400,14 @@ export async function diffAgainstLive(db: Db, userId: string, kind: Kind, versio
   } else {
     cmp("Recording disclosure", live?.disclosure, v.disclosure);
     cmp("Max's prompt", live?.native_prompt ?? "(the built-in prompt)", v.native_prompt ?? "(the built-in prompt)");
+    const ag = (x: any) => normalizeAgent(x?.agent);
+    const [la, va] = [ag(live), ag(v)];
+    cmp("Agent context", la.context ?? "(none)", va.context ?? "(none)");
+    cmp("Agent greeting", la.greeting ?? "(the built-in greeting)", va.greeting ?? "(the built-in greeting)");
+    cmp("Agent guardrails", la.guardrails ?? "(all on)", va.guardrails ?? "(all on)");
+    const docs = (a: AgentConfig) => new Map((a.docs ?? []).map((d) => [d.title, d.text]));
+    const [ld, vd] = [docs(la), docs(va)];
+    for (const t of new Set([...ld.keys(), ...vd.keys()])) cmp(`Document "${t}"`, ld.get(t) ?? "(none)", vd.get(t) ?? "(none)");
     cmp("Free-mode prompt", live?.free_prompt ?? "(the built-in prompt)", v.free_prompt ?? "(the built-in prompt)");
     const beats = (x: any) => new Map(((x?.beats ?? []) as any[]).map((bt) => [bt.id, bt.text]));
     const a = beats(live);

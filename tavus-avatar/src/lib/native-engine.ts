@@ -25,7 +25,7 @@
  * Pure apart from the fetch: the caller (processNativeTurn in beat-controller.ts) owns the call state.
  */
 import { addedRisk, numberTokens } from "./ai-speech";
-import { guardFreeText, lowestAllowedPrice, type ChatMessage, type GuardContext, type GuardResult } from "./free-ai";
+import { guardFreeText, lowestAllowedPrice, numberWithUnit, type ChatMessage, type GuardContext, type GuardResult } from "./free-ai";
 import { llmTarget, partialJsonString, streamChat, takeLeadSentences } from "./llm-stream";
 import { DEFAULT_LADDER, floorOf, spokenDailyRates, spokenPrice } from "./price-ladder";
 
@@ -49,7 +49,7 @@ You are Max, the finance manager at the dealership. You're on a video call with 
 Help the customer decide, with full understanding, whether the dealership's protection package is right for them. A clear, informed "no" is a good outcome too. You are not here to win an argument.
 
 # How a good call goes
-- Start human. You already asked "Can you hear and see me alright?". React to their answer, ask how the buying experience has been, and listen.
+- Start human. You already greeted them (the first line of the conversation). React to their answer, ask how the buying experience has been, and listen.
 - Then give the recording disclosure (in the data below) and get their okay before anything about coverage or price.
 - Find out what matters to them before you pitch: how long they'll keep the car, how much they drive, what they already know about the factory warranty, whether surprise repair bills worry them.
 - Explain only the parts of the package that fit what they told you, one idea at a time, using the talking points and facts. Skip what they already know or don't care about. Never recite a list.
@@ -68,6 +68,95 @@ Help the customer decide, with full understanding, whether the dealership's prot
 # Tone
 Conversational and spoken: short sentences, contractions, usually one to three sentences, and end most replies with a question. Calm and confident, never pushy, never salesy filler like "great question" every turn. No lists, markdown, emojis or stage directions. English only.`;
 
+
+// -----------------------------------------------------------------------------
+// The agent: what a dealership configures on the portal's Agent page (stored with the script version)
+// -----------------------------------------------------------------------------
+export interface AgentDoc {
+  title: string;
+  text: string;
+}
+export interface AgentConfig {
+  /** free-form background Max should know (the dealership, the offer, the situation) */
+  context?: string;
+  /** Max's first line, spoken word for word (empty = "Can you hear and see me alright?") */
+  greeting?: string;
+  /** knowledge documents, pasted or uploaded as text */
+  docs?: AgentDoc[];
+  guardrails?: {
+    /** prices only from the price ladder, one step at a time after pushback (default on) */
+    price_ladder?: boolean;
+    /** the recording disclosure, word for word, before any price (default on) */
+    disclosure?: boolean;
+    /** the script's beats 2-21 as talking points (default on) */
+    script_talking_points?: boolean;
+  };
+}
+
+export const AGENT_LIMITS = { greeting: 300, context: 50_000, docs: 30, docTitle: 120, docText: 100_000, docsTotal: 300_000 } as const;
+
+const clean = (v: unknown) => (typeof v === "string" ? v.replace(/\r\n/g, "\n").trim() : "");
+
+/** The agent settings in a stored or submitted shape, tidied: trimmed text, empty documents dropped */
+export function normalizeAgent(raw: unknown): AgentConfig {
+  const a = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const g = (a.guardrails && typeof a.guardrails === "object" ? a.guardrails : {}) as Record<string, unknown>;
+  const docs = (Array.isArray(a.docs) ? a.docs : [])
+    .map((d) => ({ title: clean((d as AgentDoc)?.title), text: clean((d as AgentDoc)?.text) }))
+    .filter((d) => d.title || d.text);
+  const out: AgentConfig = {};
+  if (clean(a.context)) out.context = clean(a.context);
+  if (clean(a.greeting)) out.greeting = clean(a.greeting);
+  if (docs.length) out.docs = docs;
+  const guardrails: NonNullable<AgentConfig["guardrails"]> = {};
+  for (const k of ["price_ladder", "disclosure", "script_talking_points"] as const) if (typeof g[k] === "boolean") guardrails[k] = g[k] as boolean;
+  if (Object.keys(guardrails).length) out.guardrails = guardrails;
+  return out;
+}
+
+/** The settings a call runs with (defaults filled in) */
+export function agentSettings(raw: unknown) {
+  const a = normalizeAgent(raw);
+  return {
+    context: a.context ?? "",
+    greeting: a.greeting ?? "",
+    docs: a.docs ?? [],
+    priceLadder: a.guardrails?.price_ladder !== false,
+    disclosure: a.guardrails?.disclosure !== false,
+    scriptTalkingPoints: a.guardrails?.script_talking_points !== false,
+  };
+}
+
+/** Why agent settings can't be saved (empty = fine). Context and documents are approved content. */
+export function agentProblems(raw: unknown): string[] {
+  const a = normalizeAgent(raw);
+  const problems: string[] = [];
+  const greeting = a.greeting ?? "";
+  if (greeting.length > AGENT_LIMITS.greeting) problems.push(`the greeting is longer than ${AGENT_LIMITS.greeting} characters`);
+  if (/\$\s*\d|\bdollars?\b|\bcents?\b/i.test(greeting)) problems.push("the greeting names a price (it is said word for word, before any check)");
+  // Risky claims only: naming the dealership's own brand in a greeting is normal
+  const risk = greeting ? addedRisk(greeting, "") : null;
+  if (risk && !/^names /.test(risk)) problems.push(`the greeting ${risk.replace(/^adds /, "adds the claim: ")}`);
+  if ((a.context ?? "").length > AGENT_LIMITS.context) problems.push(`the context is longer than ${AGENT_LIMITS.context.toLocaleString("en-US")} characters`);
+  const docs = a.docs ?? [];
+  if (docs.length > AGENT_LIMITS.docs) problems.push(`more than ${AGENT_LIMITS.docs} documents`);
+  docs.forEach((d, i) => {
+    const name = d.title || `document ${i + 1}`;
+    if (!d.title) problems.push(`${name} needs a title`);
+    else if (d.title.length > AGENT_LIMITS.docTitle) problems.push(`the title of "${name.slice(0, 40)}" is longer than ${AGENT_LIMITS.docTitle} characters`);
+    if (!d.text) problems.push(`"${name}" is empty`);
+    else if (d.text.length > AGENT_LIMITS.docText) problems.push(`"${name}" is longer than ${AGENT_LIMITS.docText.toLocaleString("en-US")} characters`);
+  });
+  const total = docs.reduce((n, d) => n + d.text.length, 0);
+  if (total > AGENT_LIMITS.docsTotal) problems.push(`the documents add up to more than ${AGENT_LIMITS.docsTotal.toLocaleString("en-US")} characters`);
+  return problems;
+}
+
+/** All the agent's own approved text: Max may use its numbers and wording */
+export function agentText(a: ReturnType<typeof agentSettings>): string {
+  return [a.context, a.greeting, ...a.docs.map((d) => `${d.title} ${d.text}`)].filter(Boolean).join(" ");
+}
+
 export interface NativeData {
   vehicle: string;
   /** the approved pitch material, each item one talking point (no order is required) */
@@ -77,28 +166,33 @@ export interface NativeData {
   /** the recording disclosure, word for word */
   disclosure: string;
   ladder?: readonly number[];
+  /** the agent's context and documents (portal Agent page) */
+  context?: string;
+  docs?: AgentDoc[];
+  /** guardrail switches (default on) */
+  priceLadder?: boolean;
+  disclosureOn?: boolean;
 }
 
 export function nativeDataBlock(d: NativeData): string {
   const ladder = d.ladder ?? DEFAULT_LADDER;
-  return `# Call data (approved by the dealership; code checks every reply against it)
-Vehicle: ${d.vehicle}
-
-Recording disclosure (say it word for word, once, before any coverage or price talk):
-"${d.disclosure}"
-
-Price ladder (a daily rate; the first offer is ${spokenPrice(ladder[0])} a day; then, only when they push back, one step at a time: ${ladder.map(spokenPrice).join(", then ")}; never below ${spokenPrice(floorOf(ladder))} a day). Always say a price in words with "a day".
-
-Talking points (approved material; use what fits this customer, in any order, in your own words):
-${d.talkingPoints.map((t) => `- ${t}`).join("\n")}
-
-Facts (the only other facts you may use):
-${d.facts}`;
+  const parts = [`# Call data (approved by the dealership; code checks every reply against it)\nVehicle: ${d.vehicle}`];
+  if (d.context) parts.push(`Context:\n${d.context}`);
+  if (d.disclosureOn !== false) parts.push(`Recording disclosure (say it word for word, once, before any coverage or price talk):\n"${d.disclosure}"`);
+  if (d.priceLadder !== false && ladder.length) {
+    parts.push(
+      `Price ladder (a daily rate; the first offer is ${spokenPrice(ladder[0])} a day; then, only when they push back, one step at a time: ${ladder.map(spokenPrice).join(", then ")}; never below ${spokenPrice(floorOf(ladder))} a day). Always say a price in words with "a day".`
+    );
+  } else parts.push("Prices: say only prices and amounts written in the context, documents or facts, exactly as written.");
+  if (d.talkingPoints.length) parts.push(`Talking points (approved material; use what fits this customer, in any order, in your own words):\n${d.talkingPoints.map((t) => `- ${t}`).join("\n")}`);
+  for (const doc of d.docs ?? []) parts.push(`Document: ${doc.title}\n${doc.text}`);
+  parts.push(`Facts (the only other facts you may use):\n${d.facts}`);
+  return parts.join("\n\n");
 }
 
 export const NATIVE_REPLY_FORMAT = `Reply with ONLY JSON:
 {"say": "<what Max says now>", "outcome": "open" | "accepted" | "declined", "end_call": false}
-"outcome" is "accepted" only once the customer has clearly said yes to a price you offered, "declined" once they have finally turned the package down, else "open".`;
+"outcome" is "accepted" only once the customer has clearly said yes to your offer, "declined" once they have finally turned it down, else "open".`;
 
 /**
  * Why an edited prompt can't be saved (the portal checks this; empty = fine). The prompt is behavior
@@ -127,8 +221,13 @@ export function buildNativeSystemPrompt(data: NativeData, prompt: string = DEFAU
 }
 
 /** What the app knows about the call, said to the AI after the history (keeps the prefix cacheable) */
-export function nativeStateNote(s: { disclosureGiven: boolean; lowestOffered: number | null | undefined; ladder?: readonly number[]; refusals: number }): string {
+export function nativeStateNote(s: { disclosureGiven: boolean; lowestOffered: number | null | undefined; ladder?: readonly number[]; refusals: number; priceLadder?: boolean; disclosureOn?: boolean }): string {
   const ladder = s.ladder ?? DEFAULT_LADDER;
+  if (s.priceLadder === false || s.disclosureOn === false) {
+    const disclosure = s.disclosureOn === false ? "" : ` Recording disclosure ${s.disclosureGiven ? "given, never repeat it" : "NOT given yet: give it word for word first"}.`;
+    const price = s.priceLadder === false ? "" : ` Lowest price offered so far: ${s.lowestOffered === null || s.lowestOffered === undefined ? "none" : `${spokenPrice(s.lowestOffered)} a day`}.`;
+    return `CALL STATE (from the app, not said by anyone):${disclosure}${price} The customer has refused ${s.refusals} time${s.refusals === 1 ? "" : "s"} so far.`;
+  }
   const offered = s.lowestOffered ?? null;
   const price =
     offered === null
@@ -185,40 +284,71 @@ export interface NativeGuardContext {
   customerSaid: string;
   /** every line Max has said this call */
   earlierMax: string[];
+  /** guardrail switches (default on) */
+  ladderOn?: boolean;
+  disclosureOn?: boolean;
 }
 
 function freeGuardCtx(ctx: NativeGuardContext): GuardContext {
+  const ladderOn = ctx.ladderOn !== false;
   return {
     corpus: `${ctx.corpus} ${ctx.disclosure}`,
     // No beats here: prices are allowed once the disclosure has been given (or in this same reply)
     beatBefore: 0,
     lowestOffered: ctx.lowestOffered,
-    ladder: ctx.ladder,
+    // Ladder off: no ladder rules; every amount must be in the approved text (the number checks)
+    ladder: ladderOn ? ctx.ladder : [],
+    noLadder: !ladderOn,
     customerSaid: ctx.customerSaid,
     customerRefused: ctx.refused,
     recentMax: ctx.earlierMax.slice(-2),
     earlierMax: ctx.earlierMax,
-    repeatable: [ctx.disclosure],
+    repeatable: ctx.disclosureOn === false ? [] : [ctx.disclosure],
     // refusedPrice stays unset: a no does NOT have to get the next lower price here; the prompt decides
   };
 }
 
 export function guardNativeText(t: string, ctx: NativeGuardContext, whole: boolean): GuardResult {
-  const disclosedNow = ctx.disclosureGiven || saysDisclosureVerbatim(t, ctx.disclosure);
+  const disclosedNow = ctx.disclosureOn === false || ctx.disclosureGiven || saysDisclosureVerbatim(t, ctx.disclosure);
   // guardFreeText's beat rule: beat 21+ = prices allowed; before the disclosure, never
   const g = guardFreeText(t, freeGuardCtx(ctx), disclosedNow ? 22 : 0, whole);
   const fail = (reason: string): GuardResult => ({ ok: false, reason, prices: g.prices });
   if (!g.ok) return /^price before Beat/.test(g.reason ?? "") ? fail("price before the recording disclosure") : g;
   // A paraphrased disclosure would be said twice once code adds the real one
-  if (!ctx.disclosureGiven && !saysDisclosureVerbatim(t, ctx.disclosure) && /\brecord(ed|ing)?\b/i.test(t)) {
+  if (ctx.disclosureOn !== false && !ctx.disclosureGiven && !saysDisclosureVerbatim(t, ctx.disclosure) && /\brecord(ed|ing)?\b/i.test(t)) {
     return fail("the recording disclosure must be word for word");
+  }
+  // Price ladder off: every money amount must be written, as money, in the approved text
+  if (ctx.ladderOn === false) {
+    const approved = moneyMentions(ctx.corpus);
+    const said = moneyMentions(t);
+    const newKey = [...said.keys].find((k) => !approved.keys.has(k) && !approved.values.has(Number(k.split(" ")[0])));
+    if (newKey) return fail(`amount "${newKey}s" is not in the approved content`);
+    const newValue = [...said.values].find((v) => !approved.values.has(v));
+    if (newValue !== undefined) return fail(`amount $${newValue} is not in the approved content`);
   }
   // The price only comes down when the customer pushed back on this turn
   const current = ctx.lowestOffered;
-  if (current !== null && current !== undefined && !ctx.pushback && g.prices.some((p) => p < current)) {
+  if (ctx.ladderOn !== false && current !== null && current !== undefined && !ctx.pushback && g.prices.some((p) => p < current)) {
     return fail(`lowered the price to $${Math.min(...g.prices)} a day without the customer pushing back`);
   }
   return g;
+}
+
+/** Money in a text: "<number> dollar/cent" pairs as written, and the values of "$9,500" and daily rates */
+export function moneyMentions(text: string): { keys: Set<string>; values: Set<number> } {
+  const keys = new Set(numberWithUnit(text).filter((p) => / (dollar|cent)$/.test(p)));
+  const values = new Set<number>(spokenDailyRates(text));
+  for (const m of text.matchAll(/\$\s?(\d[\d,]*(?:\.\d+)?)/g)) {
+    const v = Number(m[1].replace(/,/g, ""));
+    values.add(v);
+    keys.add(`${v} dollar`);
+  }
+  for (const k of keys) {
+    const n = Number(k.split(" ")[0]);
+    if (Number.isFinite(n) && k.endsWith("dollar")) values.add(n);
+  }
+  return { keys, values };
 }
 
 /**
@@ -276,7 +406,7 @@ export function buildNativeMessages(system: string, history: ChatMessage[], cust
 
 /** After a price rejection: the one lower price allowed now, or that none is */
 function priceHint(reason: string, g: NativeGuardContext): string {
-  if (!/price|skipped down/.test(reason)) return "";
+  if (g.ladderOn === false || !/price|skipped down/.test(reason)) return "";
   if (g.lowestOffered === null || g.lowestOffered === undefined) return ` The first price you may say is ${spokenPrice(g.ladder[0])} a day.`;
   if (!g.pushback) return ` The customer did not push back on the price: keep ${spokenPrice(g.lowestOffered)} a day.`;
   if (g.lowestOffered <= floorOf(g.ladder)) return ` ${spokenPrice(g.lowestOffered)} a day is the lowest price there is.`;

@@ -68,6 +68,18 @@ export default async function DealershipPage({ params, searchParams }: { params:
         </p>
       )}
 
+      <div className="panel" style={{ marginTop: 16 }}>
+        <div className="row" style={{ justifyContent: "space-between" }}>
+          <div>
+            <strong>Agent</strong>
+            <div className="muted">Prompt, context, greeting, knowledge documents and guardrails, with a test chat.</div>
+          </div>
+          <Link className="button" href={`/d/${id}/agent`}>
+            Open the Agent page →
+          </Link>
+        </div>
+      </div>
+
       <h2>Last 30 days</h2>
       <div className="grid2">
         <div className="panel">
