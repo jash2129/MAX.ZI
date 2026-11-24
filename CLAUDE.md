@@ -80,6 +80,12 @@ Next.js app (`tavus-avatar/`) for an AWS Summit Sydney booth demo. Real-time con
     `services/portal/src/server/agent-test.ts`) runs real native turns on any version the person can
     read (draft included); the browser keeps only the call state, the content is always reloaded from
     the database. Needs `OPENAI_API_KEY` (and `AI_PROVIDER=openai`) on the portal's host.
+    The test panel (Agent studio and every version page) has three modes: Type, Voice (browser speech
+    recognition and voice) and **Video**: the call app's HeyGen LiveAvatar says Max's lines
+    (`/api/agent-test/avatar` starts/stops the session with `HEYGEN_API_KEY`, optional
+    `HEYGEN_AVATAR_ID`, both needed on the portal's host; at most 8 sessions per person per hour; the
+    avatar only gets `speak_text`, never its own AI). The customer's voice is the browser's recognizer,
+    not Deepgram, and there is no barge-in.
   - `MAX_MODE=free` - Option D (only when set): the AI runs the whole call from the full script and knowledge base
     (`src/lib/free-ai.ts`, `processFreeTurn` in `beat-controller.ts`). Code still enforces the price
     ladder ($4 → $3.50 → $3.25 → $3, one step at a time, only from Beat 22), no invented figures or risky

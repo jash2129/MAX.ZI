@@ -44,7 +44,16 @@ export function AgentChat({ versionId, label, kind = "script", dealershipName }:
   const [voice, setVoice] = useState(false);
   const [heard, setHeard] = useState("");
   const [voiceSupported, setVoiceSupported] = useState(true);
+  // Video: the HeyGen avatar says Max's lines (the same avatar as the call app)
+  const [video, setVideo] = useState(false);
+  const [avatarState, setAvatarState] = useState<"off" | "connecting" | "on">("off");
   const logRef = useRef<HTMLDivElement>(null);
+  const videoElRef = useRef<HTMLVideoElement>(null);
+  const audioBoxRef = useRef<HTMLDivElement>(null);
+  const videoRef = useRef(false);
+  const roomRef = useRef<{ disconnect: () => Promise<void> | void; localParticipant: { publishData: (d: Uint8Array, o: { reliable: boolean; topic: string }) => Promise<void> } } | null>(null);
+  const sessionTokenRef = useRef<string | null>(null);
+  const speakDoneRef = useRef<{ then: () => void; timer: ReturnType<typeof setTimeout>; at: number } | null>(null);
 
   // Refs the speech callbacks read (they outlive renders)
   const stateRef = useRef<string | null>(null);
@@ -55,7 +64,10 @@ export function AgentChat({ versionId, label, kind = "script", dealershipName }:
 
   useEffect(() => {
     setVoiceSupported(Boolean(recognizerClass()) && typeof window !== "undefined" && "speechSynthesis" in window);
-    return () => stopVoice();
+    return () => {
+      stopVoice();
+      void disconnectAvatar();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   useEffect(() => {
@@ -91,8 +103,114 @@ export function AgentChat({ versionId, label, kind = "script", dealershipName }:
     }
   }
 
+  // ------------------------------ video (HeyGen avatar) ------------------------------
+  async function avatarCommand(type: string, textToSay?: string) {
+    const room = roomRef.current;
+    if (!room) return;
+    const name = `avatar.${type}`;
+    const body = textToSay
+      ? { event_type: name, event: name, text: textToSay, data: { text: textToSay }, payload: { text: textToSay } }
+      : { event_type: name, event: name, type: name, action: type };
+    await room.localParticipant.publishData(new TextEncoder().encode(JSON.stringify(body)), { reliable: true, topic: "agent-control" });
+  }
+
+  function avatarSpoke() {
+    const done = speakDoneRef.current;
+    if (!done) return;
+    speakDoneRef.current = null;
+    clearTimeout(done.timer);
+    setPhase("idle");
+    void avatarCommand("start_listening").catch(() => {});
+    done.then();
+  }
+
+  /** Starts a HeyGen session and joins its room; the avatar shows in the panel */
+  async function connectAvatar(): Promise<boolean> {
+    if (roomRef.current) return true;
+    setAvatarState("connecting");
+    setError(null);
+    try {
+      const res = await fetch("/api/agent-test/avatar", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ version: versionId, kind }),
+      });
+      const s = await res.json();
+      if (!res.ok) throw new Error(s?.error || "The avatar could not start.");
+      sessionTokenRef.current = s.sessionToken;
+      const { Room, RoomEvent, Track } = await import("livekit-client");
+      const room = new Room({ adaptiveStream: true, dynacast: true });
+      room.on(RoomEvent.TrackSubscribed, (track) => {
+        if (track.kind === Track.Kind.Video && videoElRef.current) track.attach(videoElRef.current);
+        if (track.kind === Track.Kind.Audio && audioBoxRef.current) audioBoxRef.current.appendChild(track.attach());
+      });
+      room.on(RoomEvent.DataReceived, (payload: Uint8Array) => {
+        try {
+          const ev = JSON.parse(new TextDecoder().decode(payload));
+          const name = String(ev.event_type || ev.event || ev.type || "").toLowerCase();
+          const stopped = /stop_talking|stopped_speaking|finished_speaking|speak_ended|talking_stop/.test(name);
+          // Ignore a stop that arrives right after the line was sent (the previous line's)
+          if (stopped && speakDoneRef.current && Date.now() - speakDoneRef.current.at > 400) avatarSpoke();
+        } catch {
+          /* not JSON */
+        }
+      });
+      room.on(RoomEvent.Disconnected, () => {
+        roomRef.current = null;
+        setAvatarState("off");
+      });
+      await room.connect(s.livekitUrl, s.livekitClientToken);
+      await room.startAudio().catch(() => {});
+      roomRef.current = room as unknown as typeof roomRef.current;
+      // Tracks published before we joined
+      room.remoteParticipants.forEach((pt) =>
+        pt.trackPublications.forEach((pub) => {
+          const t = pub.track;
+          if (t?.kind === Track.Kind.Video && videoElRef.current) t.attach(videoElRef.current);
+          if (t?.kind === Track.Kind.Audio && audioBoxRef.current) audioBoxRef.current.appendChild(t.attach());
+        })
+      );
+      setAvatarState("on");
+      return true;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setAvatarState("off");
+      void disconnectAvatar();
+      return false;
+    }
+  }
+
+  async function disconnectAvatar() {
+    const room = roomRef.current;
+    roomRef.current = null;
+    if (speakDoneRef.current) clearTimeout(speakDoneRef.current.timer);
+    speakDoneRef.current = null;
+    try {
+      await room?.disconnect();
+    } catch {
+      /* already gone */
+    }
+    if (audioBoxRef.current) audioBoxRef.current.innerHTML = "";
+    const token = sessionTokenRef.current;
+    sessionTokenRef.current = null;
+    if (token) {
+      void fetch("/api/agent-test/avatar", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sessionToken: token }), keepalive: true }).catch(() => {});
+    }
+    setAvatarState("off");
+  }
+
   // ------------------------------ voice ------------------------------
   function speak(reply: string, then: () => void) {
+    if (videoRef.current && roomRef.current) {
+      // The avatar says it; its "stopped talking" event (or a time limit by length) ends the turn
+      if (speakDoneRef.current) clearTimeout(speakDoneRef.current.timer);
+      const words = reply.split(/\s+/).length;
+      const timer = setTimeout(avatarSpoke, Math.max(5000, words * 450 + 3000));
+      speakDoneRef.current = { then, timer, at: Date.now() };
+      setPhase("speaking");
+      void avatarCommand("speak_text", reply).catch(() => avatarSpoke());
+      return;
+    }
     const synth = window.speechSynthesis;
     synth.cancel();
     const u = new SpeechSynthesisUtterance(reply);
@@ -200,7 +318,12 @@ export function AgentChat({ versionId, label, kind = "script", dealershipName }:
     setPhase((p) => (p === "thinking" ? p : "idle"));
   }
 
-  function setMode(wantVoice: boolean) {
+  function setMode(m: "type" | "voice" | "video") {
+    const wantVoice = m !== "type";
+    const wantVideo = m === "video";
+    videoRef.current = wantVideo;
+    setVideo(wantVideo);
+    if (!wantVideo) void disconnectAvatar();
     if (wantVoice !== voice) toggleVoice();
   }
 
@@ -220,6 +343,7 @@ export function AgentChat({ versionId, label, kind = "script", dealershipName }:
   async function start() {
     stopVoice();
     voiceRef.current = voice;
+    if (videoRef.current && !(await connectAvatar())) return;
     setLines([]);
     stateRef.current = null;
     setState(null);
@@ -261,17 +385,38 @@ export function AgentChat({ versionId, label, kind = "script", dealershipName }:
           </span>
         </div>
         <div className="seg" role="group" aria-label="How you talk to Max">
-          <button type="button" aria-pressed={!voice} onClick={() => setMode(false)}>
+          <button type="button" aria-pressed={!voice} onClick={() => setMode("type")}>
             Type
           </button>
-          <button type="button" aria-pressed={voice} onClick={() => setMode(true)} disabled={!voiceSupported} title={voiceSupported ? "" : "Voice needs Chrome or Edge"}>
+          <button type="button" aria-pressed={voice && !video} onClick={() => setMode("voice")} disabled={!voiceSupported} title={voiceSupported ? "" : "Voice needs Chrome or Edge"}>
             Voice
+          </button>
+          <button type="button" aria-pressed={video} onClick={() => setMode("video")} disabled={!voiceSupported} title={voiceSupported ? "The avatar on video, as on a real call" : "Video needs Chrome or Edge"}>
+            Video
           </button>
         </div>
       </div>
-      <button type="button" className="primary" onClick={() => void start()} disabled={busy} style={{ width: "100%" }}>
-        {lines.length ? "Start over" : "Start a test call"}
-      </button>
+      {video && (
+        <div className="avatar-box">
+          <video ref={videoElRef} autoPlay playsInline muted={false} aria-label="Max, the avatar" />
+          {avatarState !== "on" && (
+            <div className="avatar-cover">
+              {avatarState === "connecting" ? "Connecting the avatar…" : "The avatar appears when you start the call. Each video test uses HeyGen minutes."}
+            </div>
+          )}
+          <div ref={audioBoxRef} hidden />
+        </div>
+      )}
+      <div className="row" style={{ flexWrap: "nowrap" }}>
+        <button type="button" className="primary" onClick={() => void start()} disabled={busy || avatarState === "connecting"} style={{ flex: 1 }}>
+          {lines.length ? "Start over" : video ? "Start a video call" : "Start a test call"}
+        </button>
+        {video && avatarState === "on" && (
+          <button type="button" className="danger" onClick={() => { stopVoice(); void disconnectAvatar(); }}>
+            End video
+          </button>
+        )}
+      </div>
       <p className="muted" style={{ marginTop: 6 }}>
         You play the customer: type, or turn voice on and talk. Max runs on this version{dealershipName ? ` of ${dealershipName}` : ""}
         {kind === "script" ? "" : ", with the dealership's live script"}{kind === "kb" ? " and price ladder" : kind === "price" ? " and knowledge base" : ""}, with every check on. Nothing reaches a customer, and testing approves
@@ -346,8 +491,9 @@ export function AgentChat({ versionId, label, kind = "script", dealershipName }:
       </form>
       {voice && (
         <p className="muted" style={{ fontSize: 13 }}>
-          Voice uses your browser&apos;s speech recognition and voice, not the call app&apos;s Deepgram and avatar. Your turn ends after the same pause a live call
-          waits for. You can&apos;t interrupt Max here: wait until he finishes.
+          {video
+            ? "Max speaks through the real avatar. Your voice is heard by your browser (not Deepgram), and your turn ends after the same pause a live call waits for. You can't interrupt Max here: wait until he finishes."
+            : "Voice uses your browser's speech recognition and voice, not the call app's Deepgram and avatar. Your turn ends after the same pause a live call waits for. You can't interrupt Max here: wait until he finishes."}
         </p>
       )}
     </div>
