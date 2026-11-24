@@ -25,6 +25,7 @@ import { factoryWarranty } from "./factory-warranty";
 import {
   isNativeEnabled,
   isNativePushback,
+  saysYesTo,
   agentSettings,
   agentText,
   buildNativeSystemPrompt,
@@ -135,6 +136,8 @@ export interface CallState {
   native_refusals?: number;
   /** Native engine: Max replies so far (code adds the disclosure if it is still missing on the second) */
   native_replies?: number;
+  /** Native engine: the daily price Max last offered, until the customer says yes to it */
+  native_offer_pending?: number | null;
   is_impatient_flow?: boolean;
   sentence_index?: number;
   total_sentences?: number;
@@ -3196,6 +3199,9 @@ async function processNativeTurn(
   if (refused && state.free_disclosure_given) state.native_refusals = (state.native_refusals ?? 0) + 1;
 
   const data = nativeData(state.dealConfig);
+  // The price Max offered last, still waiting for a yes: this turn's words are that yes, or not
+  const pendingBefore = data.priceLadder ? (state.native_offer_pending ?? null) : null;
+  const unconfirmed = pendingBefore !== null && !saysYesTo(customerTranscript, pendingBefore, refused) ? pendingBefore : null;
   // Disclosure switched off on the Agent page: there is nothing owed
   const disclosureGiven = !data.disclosureOn || Boolean(state.free_disclosure_given);
   if (!data.disclosureOn && !state.step0_completed) {
@@ -3219,6 +3225,7 @@ async function processNativeTurn(
         customerSaid,
         earlierMax,
         ladderOn: data.priceLadder,
+        unconfirmedPrice: unconfirmed,
         disclosureOn: data.disclosureOn,
       },
       where: nativeStateNote({
@@ -3236,7 +3243,8 @@ async function processNativeTurn(
   if (!outcome.ok) {
     // Never the script: the disclosure if it is still owed, else a short neutral line (after any early
     // part already spoken)
-    const n = neutralLine({ disclosureGiven, disclosure: data.disclosure, earlierMax });
+    // A price waiting for a yes: any failed reply (a blocked confirmation, a timeout) asks for that yes
+    const n = neutralLine({ disclosureGiven, disclosure: data.disclosure, earlierMax, askPrice: unconfirmed });
     if (n.isDisclosure) {
       state.free_disclosure_given = true;
       state.step0_completed = true;
@@ -3265,13 +3273,19 @@ async function processNativeTurn(
   }
 
   const toolCalls: ControllerDecision["toolCalls"] = [];
+  // A new price waits for a yes; a yes to the waiting price clears it
+  if (unconfirmed === null && pendingBefore !== null) state.native_offer_pending = null;
+  if (prices.length && data.priceLadder && !reply.endCall) {
+    const offered = Math.min(...prices);
+    if (pendingBefore === null || Math.abs(offered - pendingBefore) > 0.001 || unconfirmed !== null) state.native_offer_pending = offered;
+  }
   if (prices.length && data.priceLadder) {
     recordNativePrice(state, prices, data.ladder);
     toolCalls.push({ name: "show_payment_breakdown", args: { daily_rate: Math.min(...prices) } });
   }
   // Without a price ladder there is no price to have been offered: a clear yes is enough
   const priceOffered = !data.priceLadder || (state.free_lowest_offer !== null && state.free_lowest_offer !== undefined);
-  const tag = settleOutcome(reply, { refused, priceOffered });
+  const tag = settleOutcome(reply, { refused, priceOffered, unconfirmed: unconfirmed !== null });
   if (tag === "accepted" && !state.package_declined) {
     state.finalize_confirmed = true;
     state.current_beat = Math.max(state.current_beat, NATIVE_ACCEPTED_MARK);

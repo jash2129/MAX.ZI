@@ -294,6 +294,8 @@ export interface NativeGuardContext {
   earlierMax: string[];
   /** guardrail switches (default on) */
   ladderOn?: boolean;
+  /** a daily price Max offered that the customer has not said yes to: no confirming the sale at it */
+  unconfirmedPrice?: number | null;
   disclosureOn?: boolean;
 }
 
@@ -334,6 +336,16 @@ export function guardNativeText(t: string, ctx: NativeGuardContext, whole: boole
   // A paraphrased disclosure would be said twice once code adds the real one
   if (ctx.disclosureOn !== false && !ctx.disclosureGiven && !saysDisclosureVerbatim(t, ctx.disclosure) && /\brecord(ed|ing)?\b/i.test(t)) {
     return fail("the recording disclosure must be word for word");
+  }
+  // A price the customer hasn't said yes to is never confirmed (test calls 2026-11-25: the customer
+  // agreed to $3, Max could only offer $3.25, the customer gave their address, and Max confirmed $3.25)
+  const pending = ctx.unconfirmedPrice;
+  // Curly apostrophes ("you’re") are the same words (test calls: one slipped through)
+  const flat = t.replace(/[‘’]/g, "'");
+  const recapsAtPending =
+    pending !== null && pending !== undefined && RECAP.test(flat) && spokenDailyRates(t).some((p) => Math.abs(p - pending) < 0.001) && !flat.trim().endsWith("?");
+  if (whole && pending !== null && pending !== undefined && (CONFIRMING.test(flat) || recapsAtPending)) {
+    return fail(`the customer hasn't said yes to ${spokenPrice(pending)} a day yet: ask them clearly, don't confirm`);
   }
   // Price ladder off: every money amount must be written, as money, in the approved text
   if (ctx.ladderOn === false) {
@@ -383,9 +395,27 @@ export function isNativePushback(transcript: string, lowestOffered: number | nul
 }
 
 /** The AI's outcome, kept honest: "accepted" needs a price offered and no refusal this turn */
-export function settleOutcome(reply: NativeReply, ctx: { refused: boolean; priceOffered: boolean }): NativeOutcomeTag {
-  if (reply.outcome === "accepted" && (ctx.refused || !ctx.priceOffered)) return "open";
+export function settleOutcome(reply: NativeReply, ctx: { refused: boolean; priceOffered: boolean; unconfirmed?: boolean }): NativeOutcomeTag {
+  if (reply.outcome === "accepted" && (ctx.refused || !ctx.priceOffered || ctx.unconfirmed)) return "open";
   return reply.outcome;
+}
+
+/** Wording that confirms the sale or recaps it as agreed */
+const CONFIRMING =
+  /\b(to recap|just to recap|so to confirm|just to confirm|to confirm|you'?ve agreed|you agreed to|your daily price is|moving forward with|welcome aboard|paperwork is being prepared|prepare the paperwork|preparing the paperwork|paperwork ready|i'?ll recap|let me recap|i'?ll get the paperwork|we'?re all set|you'?re all set)\b/i;
+/** "You'll get … for three twenty-five a day." said as a done deal (not as a question) */
+const RECAP = /\b(you'?re getting|you'?ll be getting|you'?ll get|that includes|which includes)\b/i;
+
+const AFFIRM = /\b(yes|yeah|yep|yup|sure|ok|okay|deal|sounds good|that works|works for me|let'?s do it|let'?s go|i'?ll take it|go ahead|agreed|i agree|perfect|great|fine)\b/i;
+
+/**
+ * Whether the customer's words are a yes to `price` a day: an agreeing word, no refusal, and no other
+ * price named ("three dollars works" is not a yes to three twenty-five).
+ */
+export function saysYesTo(transcript: string, price: number, refused: boolean): boolean {
+  if (refused || !AFFIRM.test(transcript)) return false;
+  const named = spokenDailyRates(transcript);
+  return named.every((p) => Math.abs(p - price) < 0.001);
 }
 
 // -----------------------------------------------------------------------------
@@ -400,8 +430,10 @@ export const NEUTRAL_LINES = [
   "Got it. Tell me what's on your mind and we'll go from there.",
 ] as const;
 
-export function neutralLine(ctx: { disclosureGiven: boolean; disclosure: string; earlierMax: string[] }): { text: string; isDisclosure: boolean } {
+export function neutralLine(ctx: { disclosureGiven: boolean; disclosure: string; earlierMax: string[]; askPrice?: number | null }): { text: string; isDisclosure: boolean } {
   if (!ctx.disclosureGiven) return { text: `Before we go any further, I want to let you know: ${ctx.disclosure} Is that okay with you?`, isDisclosure: true };
+  // The AI kept confirming a price the customer hasn't agreed to: ask the actual question
+  if (ctx.askPrice !== null && ctx.askPrice !== undefined) return { text: `Before I write anything up, is ${spokenPrice(ctx.askPrice)} a day okay with you?`, isDisclosure: false };
   // The least used this call (a neutral line said again and again is a loop)
   const used = (l: string) => ctx.earlierMax.filter((m) => m.includes(l)).length;
   const text = [...NEUTRAL_LINES].sort((a, b) => used(a) - used(b))[0];

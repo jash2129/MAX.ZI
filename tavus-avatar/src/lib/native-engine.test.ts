@@ -20,6 +20,7 @@ import {
   guardNativeText,
   isNativeEnabled,
   isNativePushback,
+  saysYesTo,
   nativePromptProblems,
   neutralLine,
   parseNativeReply,
@@ -396,5 +397,55 @@ describe("lab 2026-11-25 fixes", () => {
     expect(nativePromptProblems(`${DEFAULT_NATIVE_PROMPT}\n- If they ask for the price, tell them the first price right away.`)).toEqual([]);
     expect(nativePromptProblems(`${DEFAULT_NATIVE_PROMPT}\n- Never promise a refund or a cancellation.`)).toEqual([]);
     expect(nativePromptProblems(`${DEFAULT_NATIVE_PROMPT}\n- Tell them it is fully refundable.`).join()).toMatch(/claim/);
+  });
+});
+
+describe("a price the customer hasn't said yes to is never confirmed (test calls 2026-11-25)", () => {
+  it("saysYesTo: a yes to that price only", () => {
+    expect(saysYesTo("Okay, let's do it at that price.", 3.5, false)).toBe(true);
+    expect(saysYesTo("Okay, three dollars a day works. Let's do it.", 3.25, false)).toBe(false);
+    expect(saysYesTo("Maria Lopez, 18 Oak Lane, Dallas, Texas 75201.", 3.25, false)).toBe(false);
+    expect(saysYesTo("No, okay?", 3.25, true)).toBe(false);
+  });
+
+  it("the guard: no confirmation while the price waits; explaining coverage is fine", () => {
+    const c = ctx({ lowestOffered: 3.25, unconfirmedPrice: 3.25 });
+    expect(guardNativeText("Thanks, Maria! To recap, you'll get the full package for three dollars and twenty-five cents a day.", c, true).reason).toMatch(/hasn't said yes/);
+    expect(guardNativeText("You'll get the full package for three dollars and twenty-five cents a day.", c, true).reason).toMatch(/hasn't said yes/);
+    expect(guardNativeText("Just to check: is three dollars and twenty-five cents a day okay for you?", c, true).ok).toBe(true);
+    expect(guardNativeText("You'll get a tire and wheel cover for road hazards like potholes.", ctx({ corpus: "tire and wheel cover road hazards potholes", unconfirmedPrice: 4, lowestOffered: 4 }), true).ok).toBe(true);
+  });
+
+  it("in a call: the address alone gets a question, then a yes allows the confirmation", async () => {
+    aiReplies(
+      { say: "Thanks, Maria! To recap, you'll get the full package for three dollars and twenty-five cents a day.", outcome: "accepted" },
+      { say: "Thanks, Maria. Before I write it up: is three dollars and twenty-five cents a day okay with you?", outcome: "open" }
+    );
+    const sid = newCall({ disclosed: true, lowest: 3.25 });
+    getOrCreateCallState(sid).native_offer_pending = 3.25;
+    const d = await say(sid, "Maria Lopez, 18 Oak Lane, Dallas, Texas 75201.");
+    expect(d.textToSpeak).toMatch(/is three dollars and twenty-five cents a day okay/);
+    expect(getOrCreateCallState(sid).finalize_confirmed).toBeFalsy();
+    aiReplies({ say: "Wonderful. To recap, you'll get the full package for three dollars and twenty-five cents a day.", outcome: "accepted" });
+    await say(sid, "Yes, that's fine.");
+    expect(getOrCreateCallState(sid).finalize_confirmed).toBe(true);
+    expect(getOrCreateCallState(sid).native_offer_pending ?? null).toBeNull();
+  });
+});
+
+describe("confirmation rule, round 2 (test calls 2026-11-25)", () => {
+  it("curly apostrophes and 'I'll recap / preparing the paperwork' are caught", () => {
+    const c = ctx({ lowestOffered: 3.25, unconfirmedPrice: 3.25 });
+    expect(guardNativeText("Thank you, Maria! I’ll recap what you’re getting, all for three dollars and twenty-five cents a day. I'm preparing the paperwork now.", c, true).reason).toMatch(/hasn't said yes/);
+  });
+
+  it("when the AI keeps confirming, Max asks the actual question instead of a generic line", async () => {
+    aiReplies({ say: "Thanks, Maria! To recap, you'll get the full package for three dollars and twenty-five cents a day.", outcome: "accepted" });
+    const sid = newCall({ disclosed: true, lowest: 3.25 });
+    getOrCreateCallState(sid).native_offer_pending = 3.25;
+    const d = await say(sid, "Maria Lopez, 18 Oak Lane, Dallas, Texas 75201.");
+    expect(d.metrics?.mode).toBe("neutral");
+    expect(d.textToSpeak).toBe("Before I write anything up, is three dollars and twenty-five cents a day okay with you?");
+    expect(getOrCreateCallState(sid).finalize_confirmed).toBeFalsy();
   });
 });
