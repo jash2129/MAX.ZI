@@ -27,10 +27,10 @@ const CONNECT_TIMEOUT_MS = 6_000;
 const QUERY_TIMEOUT_MS = 3_000;
 
 /** What the portal's live versions set on a call */
-export type LiveOverrides = Pick<DealConfig, "script" | "knowledge" | "price_ladder" | "free_prompt">;
+export type LiveOverrides = Pick<DealConfig, "script" | "knowledge" | "price_ladder" | "free_prompt" | "native_prompt">;
 
 export interface LiveRows {
-  script?: { version: number; beats: unknown; disclosure: string; fixed_lines: unknown; recaps: unknown; free_prompt: string | null };
+  script?: { version: number; beats: unknown; disclosure: string; fixed_lines: unknown; recaps: unknown; free_prompt: string | null; native_prompt?: string | null };
   price?: { version: number; steps: Array<string | number> };
   kb?: { version: number; facts: unknown };
   shared: Array<{ topic: string; answer: string; keywords: string[] | null }>;
@@ -41,6 +41,7 @@ export interface LiveConfigStatus {
   dealership?: string;
   versions?: { script: number | null; price: number | null; kb: number | null };
   freePrompt?: "portal" | "built-in";
+  nativePrompt?: "portal" | "built-in";
   error?: string;
 }
 
@@ -71,6 +72,7 @@ export function toLiveOverrides(rows: LiveRows): { overrides: LiveOverrides } | 
       knowledge,
       price_ladder: ladder,
       ...(rows.script.free_prompt ? { free_prompt: rows.script.free_prompt } : {}),
+      ...(rows.script.native_prompt ? { native_prompt: rows.script.native_prompt } : {}),
     },
   };
 }
@@ -92,7 +94,7 @@ async function loadRows(url: string, dealership: string): Promise<LiveRows> {
     await client.query("set local role brain_service");
     const one = async <T extends Record<string, unknown>>(sql: string) => (await client.query<T>(sql, [dealership])).rows[0];
     const script = await one<NonNullable<LiveRows["script"]>>(
-      "select version, beats, disclosure, fixed_lines, recaps, free_prompt from script_version where dealership_id = $1 and status = 'live'"
+      "select version, beats, disclosure, fixed_lines, recaps, free_prompt, native_prompt from script_version where dealership_id = $1 and status = 'live'"
     );
     const price = await one<NonNullable<LiveRows["price"]>>("select version, steps from price_ladder_version where dealership_id = $1 and status = 'live'");
     const kb = await one<NonNullable<LiveRows["kb"]>>("select version, facts from kb_version where dealership_id = $1 and status = 'live'");
@@ -122,7 +124,7 @@ async function refresh(now: number): Promise<NonNullable<typeof cache>> {
       cache = {
         at: now,
         overrides: r.overrides,
-        status: { source: "portal", dealership: cfg.dealership, versions, freePrompt: r.overrides.free_prompt ? "portal" : "built-in" },
+        status: { source: "portal", dealership: cfg.dealership, versions, freePrompt: r.overrides.free_prompt ? "portal" : "built-in", nativePrompt: r.overrides.native_prompt ? "portal" : "built-in" },
       };
     }
   } catch (err) {

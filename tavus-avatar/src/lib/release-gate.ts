@@ -16,6 +16,7 @@ import { getOrCreateCallState, processControllerTurn, resetCallState } from "./b
 import { scoreCall, type ScoredTurn } from "./call-scorecard";
 import type { DealConfig } from "./deal-config";
 import { isFreeAIEnabled } from "./free-ai";
+import { isNativeEnabled } from "./native-engine";
 import { ladderOf, spokenPrice } from "./price-ladder";
 
 export const SUITE_VERSION = "scripted suite v1";
@@ -98,6 +99,7 @@ export interface GateResult {
 
 function aiMode(): string {
   const on = (k: string) => (process.env[k] ?? "").trim().toLowerCase();
+  if (isNativeEnabled()) return "native";
   if (isFreeAIEnabled()) return "free";
   const parts = [on("MAX_UNDERSTANDING") === "ai" ? "ai-understanding" : "", on("MAX_SPEECH") === "ai" ? "ai-speech" : ""].filter(Boolean);
   return parts.length ? parts.join("+") : "scripted";

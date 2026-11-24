@@ -33,13 +33,13 @@ const MAX_WORDS = 220;
 const HISTORY_MESSAGES = 40;
 
 /**
- * Free mode is the default: on unless MAX_MODE says otherwise (MAX_MODE=script turns it off). Tests
- * stay scripted unless they set MAX_MODE=free. Without an AI key every turn falls to the script anyway.
+ * Free mode only with MAX_MODE=free. (MAX.ZI's default is the prompt-native engine, native-engine.ts;
+ * MAX_MODE=script runs the scripted controller.) Without an AI key every turn falls to the script.
  */
 export function isFreeAIEnabled(): boolean {
   const mode = (process.env.MAX_MODE ?? "").trim().toLowerCase();
-  if (mode) return mode === "free";
-  return process.env.NODE_ENV !== "test";
+  // MAX.ZI: the prompt-native engine is the default (native-engine.ts); free mode only when asked for
+  return mode === "free";
 }
 
 export type ChatMessage = { role: "system" | "user" | "assistant"; content: string };

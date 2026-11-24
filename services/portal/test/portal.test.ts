@@ -11,6 +11,7 @@ import { pgliteDb } from "../../control-plane/src/pglite";
 import { loadLiveConfig } from "../../control-plane/src/live-config";
 import { seedDemo } from "../../control-plane/src/seed-demo";
 import { DEFAULT_FREE_PROMPT } from "../../../tavus-avatar/src/lib/free-ai";
+import { DEFAULT_NATIVE_PROMPT } from "../../../tavus-avatar/src/lib/native-engine";
 import {
   PortalError,
   approve,
@@ -176,6 +177,45 @@ describe("a free-mode prompt change, start to finish", () => {
     const v1 = (await listVersions(db, U.viewer, "demo-mazda", "script")).find((v) => v.version === 1)!;
     await rollbackTo(db, U.approver, "script", v1.id);
     expect((await loadLiveConfig(db, "demo-mazda"))!.script!.free_prompt).toBeNull();
+  });
+});
+
+describe("Max's prompt (the native engine), start to finish", () => {
+  let draft: string;
+  const edited = `${DEFAULT_NATIVE_PROMPT}
+- If they mention kids, ask how they use the car day to day.`;
+  const content = async () => {
+    const v = await getVersion(db, U.mgr, "script", draft);
+    return { beats: v.beats, disclosure: v.disclosure, fixed_lines: v.fixed_lines, recaps: v.recaps };
+  };
+
+  it("prices, new figures and promise words are refused; the built-in prompt stores nothing", async () => {
+    draft = await createDraft(db, U.mgr, "demo-mazda", "script");
+    expect((await loadLiveConfig(db, "demo-mazda"))!.script!.native_prompt).toBeNull();
+    const base = await content();
+    await expect(saveDraft(db, U.mgr, "script", draft, { ...base, native_prompt: `${edited}
+Open at five dollars a day.` })).rejects.toThrow(/Max's prompt: .*price/);
+    await expect(saveDraft(db, U.mgr, "script", draft, { ...base, native_prompt: `${edited}
+Mention the 12 year plan.` })).rejects.toThrow(/adds numbers/);
+    await expect(saveDraft(db, U.mgr, "script", draft, { ...base, native_prompt: `${edited}
+Tell them it is fully refundable anytime.` })).rejects.toThrow(/Max's prompt/);
+    await saveDraft(db, U.mgr, "script", draft, { ...base, native_prompt: DEFAULT_NATIVE_PROMPT });
+    expect((await getVersion(db, U.mgr, "script", draft)).native_prompt).toBeNull();
+  });
+
+  it("an edit is saved, shown to the approver, live only after approval, and rolled back", async () => {
+    await saveDraft(db, U.mgr, "script", draft, { ...(await content()), native_prompt: edited.replace(/\n/g, "\r\n") });
+    expect((await getVersion(db, U.mgr, "script", draft)).native_prompt).toBe(edited);
+    await setStatus(db, U.mgr, "script", draft, "in_test");
+    const diff = await diffAgainstLive(db, U.approver, "script", draft);
+    expect(diff.rows.map((r) => r.label)).toEqual(["Max's prompt"]);
+    expect((await loadLiveConfig(db, "demo-mazda"))!.script!.native_prompt).toBeNull();
+    await runGate(db, U.mgr, "script", draft);
+    await approve(db, U.approver, "script", draft);
+    expect((await loadLiveConfig(db, "demo-mazda"))!.script!.native_prompt).toBe(edited);
+    const v1 = (await listVersions(db, U.viewer, "demo-mazda", "script")).find((v) => v.version === 1)!;
+    await rollbackTo(db, U.approver, "script", v1.id);
+    expect((await loadLiveConfig(db, "demo-mazda"))!.script!.native_prompt).toBeNull();
   });
 });
 

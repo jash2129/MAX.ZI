@@ -65,13 +65,13 @@ const reply = (p: Partial<FreeReply>): FreeReply => ({ say: "Okay.", beat: 5, en
 const corpus = BEATS.map((b) => b.text).join(" ");
 
 describe("the switch", () => {
-  it("is on by default outside tests; MAX_MODE=script turns it off", () => {
+  it("is on only with MAX_MODE=free (MAX.ZI's default is the native engine)", () => {
     const env = process.env.NODE_ENV;
     try {
       delete process.env.MAX_MODE;
       expect(isFreeAIEnabled()).toBe(false); // under the test runner
       (process.env as Record<string, string>).NODE_ENV = "production";
-      expect(isFreeAIEnabled()).toBe(true);
+      expect(isFreeAIEnabled()).toBe(false);
       process.env.MAX_MODE = "script";
       expect(isFreeAIEnabled()).toBe(false);
       process.env.MAX_MODE = "free";

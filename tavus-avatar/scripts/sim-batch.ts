@@ -62,7 +62,7 @@ interface SimCall {
   review?: { aiScore: number | ""; callSummary: string; problemsFound: string; customerSentiment: string };
   seconds: number;
   /** AI-first understanding, per turn: who decided, the AI's reason, and the classifier time */
-  understanding?: Array<{ by: "ai" | "rules" | "-"; reason?: string; ms: number; speech?: "ai" | "script"; speechReason?: string; speechMs?: number; mode?: "free" | "script"; freeReason?: string; freeMs?: number; firstMs?: number; totalMs?: number; streamed?: boolean; combined?: boolean }>;
+  understanding?: Array<{ by: "ai" | "rules" | "-"; reason?: string; ms: number; speech?: "ai" | "script"; speechReason?: string; speechMs?: number; mode?: "free" | "script" | "native" | "neutral"; freeReason?: string; freeMs?: number; firstMs?: number; totalMs?: number; streamed?: boolean; combined?: boolean }>;
 }
 
 function loadEnvLocal() {

@@ -181,6 +181,8 @@ export interface SimOptions {
   judge: boolean;
   /** different salts give different customer draws (a fresh sample for confirmation runs) */
   salt?: string;
+  /** the engine `template` is for: "native" = a native prompt (native-engine.ts); default free mode */
+  engine?: "native" | "free";
 }
 
 /** Turns, score and outcome of a call that has run on `id` (shared by AI customers and replays) */
@@ -212,7 +214,7 @@ export async function simulate(persona: Persona, run: number, variant: Variant, 
   const { STEP_0_GREETING } = await import("../../src/lib/max-lines");
   const { scoreCall } = await import("../../src/lib/call-scorecard");
 
-  const dealConfig = { ...DEFAULT_DEAL_CONFIG, free_prompt: template };
+  const dealConfig = opts.engine === "native" ? { ...DEFAULT_DEAL_CONFIG, native_prompt: template, engine: "native" as const } : { ...DEFAULT_DEAL_CONFIG, free_prompt: template };
   const id = `lab-${variant}-${persona.id}-${run}-${Math.random().toString(36).slice(2, 8)}`;
   const seed = [...`${persona.id}:${run}:${opts.salt ?? ""}`].reduce((a, c) => (a * 31 + c.charCodeAt(0)) >>> 0, 7);
   const rand = seeded(seed);
@@ -242,7 +244,7 @@ export async function simulate(persona: Persona, run: number, variant: Variant, 
         },
       });
       const totalMs = Date.now() - t0;
-      turns.push({ customer: said, max: d.textToSpeak, beat: d.beatId, mode: d.metrics?.mode, reason: d.metrics?.mode === "script" ? d.metrics?.freeReason : undefined, firstMs: firstMs ?? totalMs, totalMs });
+      turns.push({ customer: said, max: d.textToSpeak, beat: d.beatId, mode: d.metrics?.mode, reason: d.metrics?.mode === "script" || d.metrics?.mode === "neutral" ? d.metrics?.freeReason : undefined, firstMs: firstMs ?? totalMs, totalMs });
       history.push({ role: "user", content: d.textToSpeak });
       lastMax = d.textToSpeak;
       if (d.isScriptComplete) {
@@ -275,7 +277,7 @@ export async function replay(callId: string, lines: string[], variant: Variant, 
   try {
     for (const said of lines.slice(0, MAX_TURNS)) {
       const d = await bc.processControllerTurn(id, said, dealConfig);
-      turns.push({ customer: said, max: d.textToSpeak, beat: d.beatId, mode: d.metrics?.mode, reason: d.metrics?.mode === "script" ? d.metrics?.freeReason : undefined });
+      turns.push({ customer: said, max: d.textToSpeak, beat: d.beatId, mode: d.metrics?.mode, reason: d.metrics?.mode === "script" || d.metrics?.mode === "neutral" ? d.metrics?.freeReason : undefined });
       if (d.isScriptComplete) {
         endedBy = "max";
         break;

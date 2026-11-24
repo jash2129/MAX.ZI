@@ -191,6 +191,8 @@ export async function saveDraftAction(form: FormData) {
         recaps: parseJson(str(form, "recaps") || "{}", "Recaps"),
         // Empty or unchanged from the built-in prompt = the built-in prompt (stored as null)
         free_prompt: str(form, "free_prompt"),
+        // Max's prompt (the native engine); empty or the built-in one = stored as null
+        native_prompt: str(form, "native_prompt"),
       };
     }
     await saveDraft(db, p.id, kind, id, content, str(form, "notes"));

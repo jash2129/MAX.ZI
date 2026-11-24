@@ -97,5 +97,6 @@ function toDealershipConfig(live: LiveDealershipConfig): DealershipConfig {
     script: scriptOf(live),
     knowledge: knowledgeOf(live),
     ...(live.script?.free_prompt ? { free_prompt: live.script.free_prompt } : {}),
+    ...(live.script?.native_prompt ? { native_prompt: live.script.native_prompt } : {}),
   };
 }

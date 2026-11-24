@@ -13,7 +13,7 @@ export type Variant = "A" | "B";
 
 export interface LabTurn extends ScoredTurn {
   /** free = the AI's reply was used; script = a guard refused it and the approved script answered */
-  mode?: "free" | "script";
+  mode?: "free" | "script" | "native" | "neutral";
   /** why the script took over, when it did */
   reason?: string;
   /** when Max could start speaking, and the whole reply, in ms */
@@ -73,12 +73,12 @@ export function measures(checkTexts: string[] = []): Measure[] {
     { id: "flags", label: "Soft flags per call", better: "lower", format: num1, of: (c) => c.scorecard.checks.filter((k) => k.severity !== "hard" && !k.pass).length },
     {
       id: "takeover",
-      label: "Turns where a guard refused the AI (script answered)",
+      label: "Turns where a guard refused the AI (script or neutral line answered)",
       better: "lower",
       format: pct,
       of: (c) => {
         const tried = c.turns.filter((t) => t.mode);
-        return tried.length ? tried.filter((t) => t.mode === "script").length / tried.length : null;
+        return tried.length ? tried.filter((t) => t.mode === "script" || t.mode === "neutral").length / tried.length : null;
       },
     },
     { id: "price", label: "Reached the price (Beat 22+)", better: "higher", format: pct, of: (c) => (c.scorecard.reachedPrice ? 1 : 0) },
@@ -306,7 +306,7 @@ export function reportHtml(r: ReportInput): string {
       ${Object.entries(c.judge?.checks ?? {}).map(([t, v]) => `<div class="${v.pass ? "ok" : "bad"}">${v.pass ? "✓" : "✗"} ${esc(t)}${v.why ? ` — ${esc(v.why)}` : ""}</div>`).join("")}
       <ol class="tx">${c.turns
         .map((t, i) => {
-          const tag = t.mode === "script" ? ` <span class="tag">script took over${t.reason ? `: ${esc(t.reason)}` : ""}</span>` : "";
+          const tag = t.mode === "script" ? ` <span class="tag">script took over${t.reason ? `: ${esc(t.reason)}` : ""}</span>` : t.mode === "neutral" ? ` <span class="tag">neutral line${t.reason ? `: ${esc(t.reason)}` : ""}</span>` : "";
           return `<li class="${i === at ? "div" : ""}${i > at && at >= 0 ? " after" : ""}"><div class="cu">${esc(t.customer)}</div><div class="mx"><b>Max</b> · beat ${t.beat}${tag}<br>${esc(t.max)}</div></li>`;
         })
         .join("")}</ol>

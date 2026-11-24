@@ -54,7 +54,7 @@ const LOCKED_INTENTS = new Set<string>([
 ]);
 
 export interface SpeechTurn {
-  intent: ClassifierIntent | "step0" | "greeting" | "free";
+  intent: ClassifierIntent | "step0" | "greeting" | "free" | "native";
   beatBefore: number;
   beatAfter: number;
   beatType: "wait" | "continue" | "stop";

@@ -23,6 +23,8 @@ export interface DealershipConfig {
   knowledge?: KnowledgeBase;
   /** Free mode's prompt template, approved with the script (unset: the built-in one) */
   free_prompt?: string;
+  /** The prompt-native engine's prompt, approved with the script (unset: the built-in one) */
+  native_prompt?: string;
   /** The control plane's live version ids this call runs on (null with file config) */
   versions?: { script: string | null; price: string | null; kb: string | null };
 }

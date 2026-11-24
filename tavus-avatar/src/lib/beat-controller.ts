@@ -13,6 +13,7 @@ import { understandAndSpeak, type ReplyOption } from "./ai-reply";
 import { withoutExtraLLM, extraLLMAllowed, isQuietRun } from "./llm-context";
 import {
   isFreeAIEnabled,
+  dailyPrices as dailyPricesIn,
   buildFreeSystemPrompt,
   runFreeTurn,
   callStateNote,
@@ -20,6 +21,16 @@ import {
   LAST_BEAT,
   type ChatMessage,
 } from "./free-ai";
+import {
+  isNativeEnabled,
+  isNativePushback,
+  buildNativeSystemPrompt,
+  runNativeTurn,
+  nativeStateNote,
+  neutralLine,
+  saysDisclosureVerbatim,
+  settleOutcome,
+} from "./native-engine";
 import { approvedFacts } from "./grounded-answer";
 import { DEFAULT_LADDER, floorOf, ladderOf, namedDailyPrice, priceAtStage, samePrice, spokenPrice, stageOfPrice } from "./price-ladder";
 import {
@@ -117,6 +128,10 @@ export interface CallState {
   free_lowest_offer?: number | null;
   /** Free AI: the recording disclosure has been said word for word */
   free_disclosure_given?: boolean;
+  /** Native engine: how many times the customer has refused (shown to the AI; it decides what to do) */
+  native_refusals?: number;
+  /** Native engine: Max replies so far (code adds the disclosure if it is still missing on the second) */
+  native_replies?: number;
   is_impatient_flow?: boolean;
   sentence_index?: number;
   total_sentences?: number;
@@ -255,7 +270,7 @@ export interface TurnMetrics {
   speechReason?: string;
   speechMs?: number;
   /** Free AI (MAX_MODE=free): who ran this turn, why the script took over, AI time and attempts */
-  mode?: "free" | "script";
+  mode?: "free" | "script" | "native" | "neutral";
   freeReason?: string;
   freeMs?: number;
   freeAttempts?: number;
@@ -275,7 +290,7 @@ export interface ControllerDecision {
   beatType: "wait" | "continue" | "stop";
   toolCalls: Array<{ name: string; args: Record<string, any> }>;
   state: CallState;
-  intent: ClassifierIntent | "step0" | "greeting" | "free";
+  intent: ClassifierIntent | "step0" | "greeting" | "free" | "native";
   isScriptComplete?: boolean;
   /** Streaming: the first sentences already sent for speaking; textToSpeak always starts with them */
   earlyText?: string;
@@ -486,7 +501,7 @@ function repromptTextIn(sessionId: string, kind: "resume" | "still_with_me" | "c
   }
   const text = kind === "clarify" ? L.CLARIFY_LINE : kind === "still_with_me" ? `${L.STILL_WITH_ME_LINE} ${pendingQuestion(state)}` : pendingQuestion(state);
   state.last_spoken_text = scrubDisputedVehicle(text, state);
-  if (isFreeAIEnabled()) pushFree(state, "", state.last_spoken_text);
+  if (engineOf(state.dealConfig) !== "script") pushFree(state, "", state.last_spoken_text);
   return state.last_spoken_text;
 }
 
@@ -2694,6 +2709,12 @@ export interface TurnOptions {
   onEarly?: (text: string) => void;
 }
 
+/** The engine for a call: its own setting (the prompt lab), else MAX_MODE (native by default) */
+export function engineOf(dealConfig: DealConfig): "native" | "free" | "script" {
+  if (dealConfig.engine) return dealConfig.engine;
+  return isNativeEnabled() ? "native" : isFreeAIEnabled() ? "free" : "script";
+}
+
 export async function processControllerTurn(
   sessionId: string,
   customerTranscript: string,
@@ -2721,7 +2742,11 @@ async function processControllerTurnIn(
     : undefined;
   let decision: ControllerDecision;
 
-  if (isFreeAIEnabled() && !mockClassification) {
+  const engine = engineOf(activeStates.get(sessionId)?.dealConfig ?? dealConfig);
+  if (engine === "native" && !mockClassification) {
+    // Prompt-native (MAX_MODE=native): the prompt runs the call; a failed turn gets a neutral line
+    decision = await processNativeTurn(sessionId, customerTranscript, dealConfig, onEarly);
+  } else if (engine === "free" && !mockClassification) {
     // Free AI (MAX_MODE=free): the AI runs the call; a turn it cannot do safely goes to the script
     const free = await processFreeTurn(sessionId, customerTranscript, dealConfig, onEarly);
     if ("decision" in free) decision = free.decision;
@@ -3032,6 +3057,188 @@ async function processFreeTurn(
   };
   console.log(`[beat-controller] mode=free (${outcome.ms} ms, attempts ${outcome.attempts}), Beat ${beatBefore} -> ${beat}`);
   return { decision };
+}
+
+// -----------------------------------------------------------------------------
+// PROMPT-NATIVE ENGINE (MAX_MODE=native, native-engine.ts): no beats. The prompt runs the call; the
+// approved content is data; code keeps the disclosure, the ladder, the facts and "a no is never a yes".
+// current_beat is only a coarse marker for logs, panels and the lab's scoring:
+// 0 before the disclosure, 1 after it, 22 once a price is on the table, 23 accepted, 25 ended after a yes.
+// -----------------------------------------------------------------------------
+const NATIVE_PRICE_MARK = 22;
+const NATIVE_ACCEPTED_MARK = 23;
+
+function nativeData(dealConfig: DealConfig) {
+  const disclosure = currentContent().builtIn ? FREE_DISCLOSURE : callDisclosure();
+  // The approved pitch material: every beat's words except the disclosure and the price/close mechanics
+  // (the price, "which two", the confirmation, the paperwork), which the ladder and the prompt cover
+  const talkingPoints = scriptBeats()
+    .filter((b) => b.id > 1 && b.id < PRICE_BEAT)
+    .map((b) => formatSpeechText(renderBeatText(b, dealConfig)))
+    .filter(Boolean);
+  const facts = approvedFacts()
+    .map((f) => `- ${f.topic}: ${f.answer}`)
+    .join("\n");
+  const vehicle = `${dealConfig.vehicle_year} ${dealConfig.vehicle_make} ${dealConfig.vehicle_model}`.trim();
+  // What the guard accepts as approved wording: every beat, also the price and close lines left out of
+  // the talking points ("everything is covered" is in the approved price line)
+  const approvedText = scriptBeats()
+    .map((b) => formatSpeechText(renderBeatText(b, dealConfig)))
+    .join(" ");
+  return { vehicle, talkingPoints, facts, disclosure, ladder: ladderOf(dealConfig), approvedText };
+}
+
+/** A price Max said: the lowest offered so far (the guard allows one step below it, after pushback) */
+function recordNativePrice(state: CallState, prices: number[], ladder: readonly number[]): void {
+  const lowest = Math.min(...prices, state.free_lowest_offer ?? Infinity);
+  state.free_lowest_offer = lowest;
+  state.negotiated_price_so_far = lowest;
+  state.concession_stage = stageOfPrice(ladder, lowest);
+  state.current_beat = Math.max(state.current_beat, NATIVE_PRICE_MARK);
+}
+
+const normTranscript = (t: string) => t.toLowerCase().replace(/[^a-z0-9 ]/g, " ").replace(/\s+/g, " ").trim();
+
+async function processNativeTurn(
+  sessionId: string,
+  customerTranscript: string,
+  dealConfig: DealConfig,
+  onEarly?: (text: string) => void
+): Promise<ControllerDecision> {
+  const t0 = Date.now();
+  const state = getOrCreateCallState(sessionId, dealConfig);
+  const beatBefore = state.current_beat;
+  const history = freeHistory(state);
+  const earlierMax = history.filter((m) => m.role === "assistant").map((m) => m.content);
+
+  const finish = (
+    say: string,
+    opts: { ending: boolean; toolCalls?: ControllerDecision["toolCalls"]; mode: "native" | "neutral"; reason: string; ms: number; attempts: number }
+  ): ControllerDecision => {
+    state.last_spoken_text = say;
+    const asked = lastQuestionOf(say);
+    if (asked) {
+      state.last_question = asked;
+      state.last_question_beat = state.current_beat;
+    }
+    state.recent_turns = [...(state.recent_turns ?? []), { customer: customerTranscript, max: say }].slice(-3);
+    pushFree(state, customerTranscript, say);
+    state.native_replies = (state.native_replies ?? 0) + 1;
+    const decision: ControllerDecision = {
+      textToSpeak: say,
+      beatId: state.current_beat,
+      beatType: opts.ending ? "stop" : "wait",
+      toolCalls: opts.toolCalls ?? [],
+      state,
+      intent: "native",
+      isScriptComplete: opts.ending,
+    };
+    decision.metrics = {
+      classifierMs: 0,
+      usedLLM: opts.mode === "native",
+      classifierTimedOut: false,
+      mode: opts.mode,
+      freeReason: opts.reason,
+      freeMs: opts.ms,
+      freeAttempts: opts.attempts,
+      controllerMs: Date.now() - t0,
+      intent: "native",
+      beatBefore,
+      beatAfter: state.current_beat,
+    };
+    console.log(JSON.stringify({ event: "native_turn", sessionId, mode: opts.mode, reason: opts.reason, ms: opts.ms, attempts: opts.attempts }));
+    return decision;
+  };
+
+  // After the call has ended every turn gets the fixed closing line
+  if (state.is_stopped) return finish(L.CLOSING_LINE, { ending: true, mode: "neutral", reason: "call ended", ms: 0, attempts: 0 });
+
+  const refused = isPriceRefusal(customerTranscript) || isPlainNo(normTranscript(customerTranscript));
+  const pushback = isNativePushback(customerTranscript, state.free_lowest_offer, refused || isPricePushback(customerTranscript));
+  if (refused && state.free_disclosure_given) state.native_refusals = (state.native_refusals ?? 0) + 1;
+
+  const data = nativeData(state.dealConfig);
+  const disclosureGiven = Boolean(state.free_disclosure_given);
+  const customerSaid = [...history.filter((m) => m.role === "user").map((m) => m.content), customerTranscript].join(" ");
+  const outcome = await runNativeTurn(
+    {
+      system: buildNativeSystemPrompt(data, state.dealConfig.native_prompt),
+      history,
+      customer: customerTranscript,
+      guard: {
+        corpus: `${data.approvedText} ${data.facts} ${data.vehicle} ${L.STEP_0_GREETING} ${L.CLOSING_LINE}`,
+        disclosure: data.disclosure,
+        disclosureGiven,
+        lowestOffered: state.free_lowest_offer,
+        ladder: data.ladder,
+        pushback,
+        refused,
+        customerSaid,
+        earlierMax,
+      },
+      where: nativeStateNote({ disclosureGiven, lowestOffered: state.free_lowest_offer, ladder: data.ladder, refusals: state.native_refusals ?? 0 }),
+    },
+    onEarly
+  );
+
+  if (!outcome.ok) {
+    // Never the script: the disclosure if it is still owed, else a short neutral line (after any early
+    // part already spoken)
+    const n = neutralLine({ disclosureGiven, disclosure: data.disclosure, earlierMax });
+    if (n.isDisclosure) {
+      state.free_disclosure_given = true;
+      state.step0_completed = true;
+      state.current_beat = Math.max(state.current_beat, 1);
+    }
+    const say = outcome.early ? `${outcome.early} ${n.text}` : n.text;
+    const spoken = outcome.early ? dailyPricesIn(outcome.early) : [];
+    if (spoken.length) recordNativePrice(state, spoken, data.ladder);
+    console.log(JSON.stringify({ event: "native_fallback", sessionId, reason: outcome.reason }));
+    return finish(say, { ending: false, mode: "neutral", reason: outcome.reason, ms: outcome.ms, attempts: outcome.attempts });
+  }
+
+  const { reply, prices } = outcome;
+  let say = reply.say;
+  // The disclosure: said word for word by the AI, or added by code on its second reply at the latest
+  if (!disclosureGiven) {
+    if (saysDisclosureVerbatim(say, data.disclosure)) state.free_disclosure_given = true;
+    else if ((state.native_replies ?? 0) >= 1 && !reply.endCall) {
+      say = `${say} Before we go any further, I want to let you know: ${data.disclosure} Is that okay with you?`;
+      state.free_disclosure_given = true;
+    }
+    if (state.free_disclosure_given) {
+      state.step0_completed = true;
+      state.current_beat = Math.max(state.current_beat, 1);
+    }
+  }
+
+  const toolCalls: ControllerDecision["toolCalls"] = [];
+  if (prices.length) {
+    recordNativePrice(state, prices, data.ladder);
+    toolCalls.push({ name: "show_payment_breakdown", args: { daily_rate: Math.min(...prices) } });
+  }
+  const tag = settleOutcome(reply, { refused, priceOffered: state.free_lowest_offer !== null && state.free_lowest_offer !== undefined });
+  if (tag === "accepted" && !state.package_declined) {
+    state.finalize_confirmed = true;
+    state.current_beat = Math.max(state.current_beat, NATIVE_ACCEPTED_MARK);
+  }
+  if (tag === "declined" && !state.finalize_confirmed) state.package_declined = true;
+
+  const ending = reply.endCall;
+  if (ending) {
+    state.is_stopped = true;
+    state.verification_deferred = true;
+    if (state.finalize_confirmed) state.current_beat = LAST_BEAT;
+  }
+  state.delivered_beats = Array.from({ length: state.current_beat }, (_, i) => i + 1);
+  return finish(say, {
+    ending,
+    toolCalls,
+    mode: "native",
+    reason: outcome.retryReason ? `ok on retry (first try ${outcome.retryReason})` : "ok",
+    ms: outcome.ms,
+    attempts: outcome.attempts,
+  });
 }
 
 interface ScriptedOptions {

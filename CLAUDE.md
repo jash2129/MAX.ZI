@@ -55,15 +55,28 @@ Next.js app (`tavus-avatar/`) for an AWS Summit Sydney booth demo. Real-time con
     once and the rest when it ends; the "was it heard" commit covers the whole reply. If the whole reply
     then fails a check, the approved line (or the script, in free mode) follows the early part. Works with
     Option C and free mode; off = one JSON reply as before. Not yet tried on a live HeyGen call.
-  - `MAX_MODE=free` - Option D, **now the default** (free unless `MAX_MODE=script`; tests stay scripted
-    unless they set it; no AI key = every turn falls to the script): the AI runs the whole call from the full script and knowledge base
+  - **Prompt-native engine, the default in MAX.ZI** (`MAX_MODE=native`, or no `MAX_MODE`; tests stay
+    scripted unless they set it): ONE prompt runs the call, with no beats (`src/lib/native-engine.ts`,
+    `processNativeTurn` in `beat-controller.ts`). The prompt is behavior only (persona, goal, guidelines,
+    tone; `DEFAULT_NATIVE_PROMPT`, or the dealership's approved `native_prompt` from the portal). Code
+    appends the approved content as data: talking points (Beats 2-21's words, in no required order), the
+    facts, the price ladder and the disclosure. Code guards only: the disclosure word for word before any
+    price (added by code on Max's second reply if missing); prices only from the ladder, first offer at the
+    top, one step down at a time and only after the customer pushed back (a no does NOT force a lower
+    price: the prompt decides); no new numbers, figures, makes or risky claims; never claims to be human;
+    no confirmation wording after a refusal, and "accepted" needs a price on the table; no 8+-word
+    sentence said twice. A rejected reply is retried once with the reason (after a streamed first part,
+    the retry continues from it); then a neutral line, NEVER the script (`NEUTRAL_LINES`, or the
+    disclosure if still owed). `NATIVE_AI_TIMEOUT_MS` (default 5 s), `NATIVE_AI_MODEL` optional.
+    Compare engines in the prompt lab: `npm run prompt-lab -- --a free:builtin --b native:builtin`.
+  - `MAX_MODE=free` - Option D (only when set): the AI runs the whole call from the full script and knowledge base
     (`src/lib/free-ai.ts`, `processFreeTurn` in `beat-controller.ts`). Code still enforces the price
     ladder ($4 → $3.50 → $3.25 → $3, one step at a time, only from Beat 22), no invented figures or risky
     claims, and the word-for-word recording disclosure; a reply that fails twice, times out
     (`FREE_AI_TIMEOUT_MS`, default 4 s) or errors is taken by the scripted controller for that turn.
     Overrides the other two switches. Not approved by TXM for real customers.
 - `MAX_CONFIG_DATABASE_URL` + `MAX_DEALERSHIP_ID` - the call app runs that dealership's content approved
-  in the portal (`src/lib/live-config.ts`): its LIVE script (with free mode's prompt), price ladder and
+  in the portal (`src/lib/live-config.ts`): its LIVE script (with Max's prompt for the native engine and free mode's prompt), price ladder and
   knowledge base plus the shared facts, read as `brain_service` (live versions only) with the brain's
   login (`services/brain/.env.local` → `DATABASE_URL`). All or nothing, checked like the brain does;
   unset, unreachable or invalid = the built-in content, logged and shown in `/api/health` → `content`.

@@ -95,6 +95,7 @@ function dealConfigFor(dealership: DealershipConfig, deal: unknown): DealConfig 
     ...(dealership.script ? { script: dealership.script } : {}),
     ...(dealership.knowledge ? { knowledge: dealership.knowledge } : {}),
     ...(dealership.free_prompt ? { free_prompt: dealership.free_prompt } : {}),
+    ...(dealership.native_prompt ? { native_prompt: dealership.native_prompt } : {}),
   };
 }
 

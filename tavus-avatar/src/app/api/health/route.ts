@@ -3,7 +3,8 @@ import { storeStatus } from "@/lib/call-log-store";
 import { storeBackend, upstashEnvNames } from "@/lib/upstash";
 import { isAIFirstEnabled } from "@/lib/ai-understanding";
 import { isAISpeechEnabled } from "@/lib/ai-speech";
-import { isFreeAIEnabled } from "@/lib/free-ai";
+import { engineOf } from "@/lib/beat-controller";
+import { DEFAULT_DEAL_CONFIG } from "@/lib/deal-config";
 import { aiProvider, llmTarget } from "@/lib/llm-stream";
 import { liveConfigStatus } from "@/lib/live-config";
 import { defaultSttEngine } from "@/lib/deepgram-stt";
@@ -33,8 +34,15 @@ export async function GET(request: Request) {
       const t = llmTarget();
       return t ? { provider: aiProvider(), model: t.model } : null;
     })(),
-    // "free": the AI runs the whole call (MAX_MODE=free); "script": the beat controller does
-    mode: isFreeAIEnabled() ? (set("XAI_API_KEY") || set("OPENAI_API_KEY") ? "free" : "free (no key: script only)") : "script",
+    // "native" (default): one prompt runs the call, no beats (native-engine.ts); "free": the AI runs the
+    // 25-beat script (MAX_MODE=free); "script": the beat controller does (MAX_MODE=script)
+    mode: (() => {
+      const engine = engineOf(DEFAULT_DEAL_CONFIG);
+      const key = set("XAI_API_KEY") || set("OPENAI_API_KEY");
+      if (engine === "native") return key ? "native" : "native (no key: neutral lines only)";
+      if (engine === "free") return key ? "free" : "free (no key: script only)";
+      return "script";
+    })(),
     // Calls' content: "portal" (the dealership's live versions, with their numbers, and whether free
     // mode's prompt is the portal's) or "built-in"; "error" says why the portal's wasn't used
     content: await liveConfigStatus(),

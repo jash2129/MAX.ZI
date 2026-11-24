@@ -4,7 +4,7 @@ import { notFound } from "next/navigation";
 import { approveAction, deleteDraftAction, rollbackAction, runGateAction, saveDraftAction, statusAction } from "@/app/actions";
 import { KIND_LABEL, Notices, Shell, Status } from "@/components/chrome";
 import { portalDb } from "@/server/db";
-import { BUILT_IN_FREE_PROMPT, KINDS, diffAgainstLive, getDealership, getVersion, permissions, type Kind } from "@/server/portal";
+import { BUILT_IN_FREE_PROMPT, BUILT_IN_NATIVE_PROMPT, KINDS, diffAgainstLive, getDealership, getVersion, permissions, type Kind } from "@/server/portal";
 import { requirePerson } from "@/server/session";
 
 export const dynamic = "force-dynamic";
@@ -221,6 +221,16 @@ export default async function VersionPage({
               <textarea id="recaps" name="recaps" rows={4} defaultValue={JSON.stringify(v.recaps ?? {}, null, 2)} />
               <p className="muted">
                 Placeholders: {"{{vehicle_year}} {{vehicle_make}} {{vehicle_model}} {{per_day_price}}"}. Prices come from the price ladder only.
+              </p>
+              <label htmlFor="native_prompt">
+                <b>Max&apos;s prompt</b>: persona, goal, guidelines and tone. This runs the call (MAX.ZI&apos;s engine){v.native_prompt ? "" : " (now: the built-in prompt)"}
+              </label>
+              <textarea id="native_prompt" name="native_prompt" rows={30} defaultValue={v.native_prompt ?? BUILT_IN_NATIVE_PROMPT} />
+              <p className="muted">
+                Write how Max should behave, in plain words. No beats: the talking points (the beats above), the facts, the price ladder and the recording
+                disclosure are added to the prompt automatically, so don&apos;t paste them here and don&apos;t write numbers or prices. Whatever the prompt
+                says, the code still enforces the disclosure word for word, prices only from the ladder (one step at a time, only after pushback), no
+                invented figures, and never treating a no as a yes.
               </p>
               <label htmlFor="free_prompt">
                 Free-mode prompt: how the AI runs the call when the AI runs it from a prompt{v.free_prompt ? "" : " (now: the built-in prompt)"}

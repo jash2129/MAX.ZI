@@ -14,6 +14,8 @@ export interface ScoredTurn {
   max: string;
   /** Beat after Max's reply (0 = Step 0, before the recording disclosure) */
   beat: number;
+  /** who wrote the reply (the native engine has no beats: its beat is only a coarse marker) */
+  mode?: string;
 }
 
 export interface Check {
@@ -153,7 +155,9 @@ export function scoreCall(turns: ScoredTurn[], ladder: readonly number[] = DEFAU
         }
       }
     }
-    checks.push({ id: "ladder_on_no", label: "A 'no' to the price gets a lower price", severity: "hard", pass: !detail, detail });
+    // The native engine lets the prompt decide whether a no gets a lower price: reported, not a hard failure
+    const native = turns.some((t) => t.mode === "native" || t.mode === "neutral");
+    checks.push({ id: "ladder_on_no", label: "A 'no' to the price gets a lower price", severity: native ? "soft" : "hard", pass: !detail, detail });
   }
 
   // 5b. Never confirms the package right after the customer refused it
@@ -174,7 +178,9 @@ export function scoreCall(turns: ScoredTurn[], ladder: readonly number[] = DEFAU
   {
     let detail: string | undefined;
     let run = 1;
-    for (let i = 1; i < turns.length; i++) {
+    // The prompt-native engine has no beats to be stuck on (its loops are caught by no_loop and the judge)
+    const beatless = turns.some((t) => t.mode === "native" || t.mode === "neutral");
+    for (let i = 1; i < turns.length && !beatless; i++) {
       run = turns[i].beat === turns[i - 1].beat ? run + 1 : 1;
       if (!detail && run >= 6 && turns[i].beat >= 1 && turns[i].beat < 25) detail = `${run} turns on Beat ${turns[i].beat}`;
     }

@@ -10,7 +10,11 @@
  *   npm run prompt-lab -- --export ../prompts/lab/baseline.md
  *   npm run prompt-lab -- --a ../prompts/lab/baseline.md --b ../prompts/lab/mine.md
  *
- * Options: --a / --b <file|builtin>, --personas a,b, --runs 2, --check "<text>" (repeatable),
+ * Prompts: --a / --b <file|builtin>, optionally prefixed with the engine: native:builtin, free:<file>
+ * (default free). native = the prompt-native engine (native-engine.ts): no beats, the prompt is behavior
+ * only and the approved content is appended by code. Compare the engines with
+ *   npm run prompt-lab -- --a free:builtin --b native:builtin
+ * Options: --personas a,b, --runs 2, --check "<text>" (repeatable),
  * --checks <file>, --parallel 4, --noise 0, --no-judge, --fake (no AI: checks the plumbing only).
  * Writes testing-skill/reports/prompt-lab-<time>.html and .json.
  */
@@ -35,6 +39,7 @@ async function main() {
   else loadEnvLocal();
   process.env.MAX_MODE = "free";
   const { DEFAULT_FREE_PROMPT, checkFreePromptTemplate } = await import("../src/lib/free-ai");
+  const { DEFAULT_NATIVE_PROMPT } = await import("../src/lib/native-engine");
   const { reportHtml, table, measures } = await import("../src/lib/prompt-lab");
 
   const exportTo = arg("--export");
@@ -46,15 +51,19 @@ async function main() {
     return;
   }
 
-  const load = (v: string | undefined) => {
-    if (!v || v === "builtin") return { name: "built-in prompt", text: DEFAULT_FREE_PROMPT };
+  const load = (spec: string | undefined): { name: string; text: string; engine: "native" | "free" } => {
+    const m = /^(native|free):(.*)$/.exec(spec ?? "");
+    const engine = (m?.[1] as "native" | "free" | undefined) ?? "free";
+    const v = m ? m[2] : spec;
+    if (!v || v === "builtin") return { name: `built-in ${engine} prompt`, text: engine === "native" ? DEFAULT_NATIVE_PROMPT : DEFAULT_FREE_PROMPT, engine };
     const file = userPath(v);
     if (!existsSync(file)) throw new Error(`no such prompt file: ${file}`);
-    return { name: path.basename(file), text: readFileSync(file, "utf8").replace(/\r\n/g, "\n").trim() };
+    return { name: `${path.basename(file)} (${engine})`, text: readFileSync(file, "utf8").replace(/\r\n/g, "\n").trim(), engine };
   };
   const promptA = load(arg("--a"));
   const promptB = arg("--b") ? load(arg("--b")) : { ...promptA, name: `${promptA.name} (again)` };
   for (const [label, p] of [["A", promptA], ["B", promptB]] as const) {
+    if (p.engine === "native") continue;
     const { unknown, missing } = checkFreePromptTemplate(p.text);
     if (unknown.length) throw new Error(`prompt ${label} has unknown placeholders: ${unknown.map((u) => `{{${u}}}`).join(", ")}`);
     if (missing.length) out(`note: prompt ${label} does not use ${missing.map((m) => `{{${m}}}`).join(", ")} (Max won't see that content)`);
@@ -74,7 +83,7 @@ async function main() {
   const jobs: Array<() => Promise<LabCall>> = [];
   for (let run = 1; run <= runs; run++)
     for (const p of personas)
-      for (const [v, prompt] of [["A", promptA], ["B", promptB]] as const) jobs.push(() => simulate(p, run, v, prompt.text, { noise, checks, judge: useJudge }));
+      for (const [v, prompt] of [["A", promptA], ["B", promptB]] as const) jobs.push(() => simulate(p, run, v, prompt.text, { noise, checks, judge: useJudge, engine: prompt.engine }));
 
   out(`prompt lab: ${jobs.length} calls (${personas.length} customers × ${runs} runs × 2 prompts), ${parallel} at a time${fake ? ", STAND-IN AI (--fake)" : ""}${useJudge ? `, AI judge${checks.length ? ` with ${checks.length} check${checks.length === 1 ? "" : "s"}` : ""}` : ""}`);
   const calls = await pool(jobs, parallel, (c) => out(callLine(c)));

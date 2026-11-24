@@ -21,6 +21,16 @@ export interface DealConfig {
    * DEFAULT_FREE_PROMPT). Unset = the built-in one. Server-side only, never sent to the browser.
    */
   free_prompt?: string;
+  /**
+   * The prompt-native engine (MAX_MODE=native, native-engine.ts): the prompt Max runs the call from,
+   * behavior only (the approved content is appended by code). Unset = DEFAULT_NATIVE_PROMPT.
+   */
+  native_prompt?: string;
+  /**
+   * Which engine runs this call, overriding MAX_MODE (server-side only; clientDealConfig never copies
+   * it from the browser). Used by the prompt lab to run two engines side by side.
+   */
+  engine?: "native" | "free" | "script";
 }
 
 export const HYUNDAI_DEAL_CONFIG: DealConfig = {

@@ -18,10 +18,12 @@ browser ──(Daily room: mic in; avatar video, Max's audio, panel events out)�
 
 Set up 2026-11-23:
 
-- **Migrations:** 001-011 applied (010, the call page, and 011, recordings, on 2026-11-23).
+- **Migrations:** 001-013 applied (010, the call page, and 011, recordings, on 2026-11-23; 012, free
+  mode's prompt, and 013, Max's prompt for the prompt-native engine, on 2026-11-23).
 - **Snapshots:** taken before 007-009, as branch `pre-migration-2026-11-23`, and before 010, as branch
   `pre-migration-010-2026-11-23` (both kept until 2026-12-06); before 011, as branch
-  `pre-migration-011-2026-11-23` (kept until 2026-12-07).
+  `pre-migration-011-2026-11-23` (kept until 2026-12-07); before 012 and 013, as branches
+  `pre-migration-012-2026-11-23` and `pre-migration-013-2026-11-23` (kept until 2026-12-07).
 - **Recording checks, read-only:** the brain's login can't read recordings or the file deletion queue
   and can't insert recordings directly, only through `app.add_recording` (an unknown call is refused,
   checked in a rolled-back transaction). The portal login without a signed-in person sees no
