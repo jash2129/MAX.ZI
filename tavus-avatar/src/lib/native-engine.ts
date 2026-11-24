@@ -211,8 +211,16 @@ export function nativePromptProblems(prompt: string): string[] {
   const known = new Set(numberTokens(DEFAULT_NATIVE_PROMPT));
   const newNumbers = numberTokens(added).filter((n) => !known.has(n));
   if (newNumbers.length) problems.push(`it adds numbers (${[...new Set(newNumbers)].slice(0, 5).join(", ")}); figures come from the facts and talking points`);
-  const risk = added ? addedRisk(added, "") : null;
-  if (risk) problems.push(`it ${risk.replace(/^adds /, "adds the claim: ")}; promises come from the approved facts only`);
+  // Line by line: a prompt TALKS about prices, refunds or its own instructions ("give the price when
+  // asked", "never promise a refund"); only a line telling Max to MAKE a risky claim is refused
+  // ("say it is fully refundable"). Prices themselves are caught above ($, dollars, cents).
+  const NEGATED = /\b(never|don'?t|do not|no|not|avoid|without|won'?t|unless)\b/i;
+  for (const line of added.split("\n")) {
+    const risk = addedRisk(line, "");
+    if (!risk || /^adds (price|instructions|money)$/.test(risk) || /^names /.test(risk) || NEGATED.test(line)) continue;
+    problems.push(`it ${risk.replace(/^adds /, "adds the claim: ")} ("${line.slice(0, 60)}"); promises come from the approved facts only`);
+    break;
+  }
   return problems;
 }
 
@@ -224,7 +232,7 @@ export function buildNativeSystemPrompt(data: NativeData, prompt: string = DEFAU
 export function nativeStateNote(s: { disclosureGiven: boolean; lowestOffered: number | null | undefined; ladder?: readonly number[]; refusals: number; priceLadder?: boolean; disclosureOn?: boolean }): string {
   const ladder = s.ladder ?? DEFAULT_LADDER;
   if (s.priceLadder === false || s.disclosureOn === false) {
-    const disclosure = s.disclosureOn === false ? "" : ` Recording disclosure ${s.disclosureGiven ? "given, never repeat it" : "NOT given yet: give it word for word first"}.`;
+    const disclosure = s.disclosureOn === false ? "" : ` Recording disclosure ${s.disclosureGiven ? "given, never repeat it" : "NOT given yet: say it word for word before any coverage or price talk (a short friendly opening first is fine)"}.`;
     const price = s.priceLadder === false ? "" : ` Lowest price offered so far: ${s.lowestOffered === null || s.lowestOffered === undefined ? "none" : `${spokenPrice(s.lowestOffered)} a day`}.`;
     return `CALL STATE (from the app, not said by anyone):${disclosure}${price} The customer has refused ${s.refusals} time${s.refusals === 1 ? "" : "s"} so far.`;
   }
@@ -235,7 +243,7 @@ export function nativeStateNote(s: { disclosureGiven: boolean; lowestOffered: nu
       : offered <= floorOf(ladder)
         ? `lowest offered ${spokenPrice(offered)} a day, the floor: no lower price exists`
         : `lowest offered ${spokenPrice(offered)} a day (the next step, only if they push back: ${spokenPrice(lowestAllowedPrice(offered, ladder))} a day)`;
-  return `CALL STATE (from the app, not said by anyone): recording disclosure ${s.disclosureGiven ? "given, never repeat it" : "NOT given yet: give it word for word before any coverage or price"}. Price: ${price}. The customer has refused ${s.refusals} time${s.refusals === 1 ? "" : "s"} so far.`;
+  return `CALL STATE (from the app, not said by anyone): recording disclosure ${s.disclosureGiven ? "given, never repeat it" : "NOT given yet: say it word for word before any coverage or price talk (a short friendly opening first is fine)"}. Price: ${price}. The customer has refused ${s.refusals} time${s.refusals === 1 ? "" : "s"} so far.`;
 }
 
 // -----------------------------------------------------------------------------
@@ -316,7 +324,8 @@ export function guardNativeText(t: string, ctx: NativeGuardContext, whole: boole
   if (whole && (t.match(/[a-z]{2,}/gi) ?? []).length < 2) return { ok: false, reason: "not a sentence: say it in words", prices: [] };
   // With the ladder, a price is always a daily rate in words, never a bare amount
   if (ctx.ladderOn !== false && !spokenDailyRates(t).length) {
-    const bare = [...t.matchAll(/\$?\s?(\d+(?:\.\d{1,2})?)/g)].map((m) => Number(m[1]));
+    // Amounts like "$4,000" or "4000" are not the four-dollar daily price (lab 2026-11-25: a false alarm)
+    const bare = [...t.replace(/\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d{4,}/g, " ").matchAll(/\$?\s?(\d+(?:\.\d{1,2})?)/g)].map((m) => Number(m[1]));
     if (bare.some((n) => ctx.ladder.some((p) => Math.abs(p - n) < 0.001))) return { ok: false, reason: 'a price must be said in words with "a day"', prices: [] };
   }
   const g = guardFreeText(t, freeGuardCtx(ctx), disclosedNow ? 22 : 0, whole);

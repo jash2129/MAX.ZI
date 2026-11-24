@@ -384,3 +384,17 @@ describe("replies that are not sentences (Grok, lab 2026-11-24)", () => {
     expect(guardNativeText("Of course.", ctx(), true).ok).toBe(true);
   });
 });
+
+describe("lab 2026-11-25 fixes", () => {
+  it("'$4,000' of tire savings is not the four-dollar daily price", () => {
+    const c = ctx({ corpus: "almost four thousand dollars 4,000 4000 ten years hundred thousand mile bumper to bumper" });
+    expect(guardNativeText("That could save you about $4,000 on tires.", c, true).reason ?? "").not.toMatch(/in words with "a day"/);
+    expect(guardNativeText("It's 4 for the package.", c, true).reason).toMatch(/in words with "a day"/);
+  });
+
+  it("the prompt check: talking ABOUT prices or refunds is fine, telling Max to promise one is not", () => {
+    expect(nativePromptProblems(`${DEFAULT_NATIVE_PROMPT}\n- If they ask for the price, tell them the first price right away.`)).toEqual([]);
+    expect(nativePromptProblems(`${DEFAULT_NATIVE_PROMPT}\n- Never promise a refund or a cancellation.`)).toEqual([]);
+    expect(nativePromptProblems(`${DEFAULT_NATIVE_PROMPT}\n- Tell them it is fully refundable.`).join()).toMatch(/claim/);
+  });
+});
