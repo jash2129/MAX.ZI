@@ -5,12 +5,15 @@ import { signOutAction } from "@/app/actions";
 import type { Person } from "@/server/session";
 
 /** Page frame for signed-in pages */
-export function Shell({ person, children }: { person: Person; children: ReactNode }) {
+export function Shell({ person, children, sub }: { person: Person; children: ReactNode; sub?: ReactNode }) {
   return (
     <>
       <header className="top">
         <Link href="/" className="brand">
-          Max portal
+          <span className="brand-mark" aria-hidden="true">
+            M
+          </span>
+          MAX.ZI
         </Link>
         <div className="row">
           <span className="muted">
@@ -22,6 +25,7 @@ export function Shell({ person, children }: { person: Person; children: ReactNod
           </form>
         </div>
       </header>
+      {sub}
       <main>{children}</main>
     </>
   );
@@ -50,8 +54,36 @@ export function Notices({ search, ok }: { search: Search; ok?: Record<string, st
 }
 
 export function Status({ status }: { status: string }) {
-  const labels: Record<string, string> = { draft: "Draft", in_test: "In test", approved: "Approved", live: "Live", retired: "Retired" };
+  const labels: Record<string, string> = { draft: "Draft", in_test: "In review", approved: "Approved", live: "Live", retired: "Retired" };
   return <span className={`badge ${status}`}>{labels[status] ?? status}</span>;
 }
 
-export const KIND_LABEL = { script: "Script", price: "Price ladder", kb: "Knowledge base" } as const;
+export const KIND_LABEL = { script: "Script & talking points", price: "Price ladder", kb: "Knowledge base" } as const;
+
+export type DealershipTab = "home" | "agent" | "calls" | "reviews" | "people";
+
+/** The menu on every dealership page: where you are, and how many versions wait for review */
+export function DealershipNav({ id, name, current, reviews = 0 }: { id: string; name: string; current?: DealershipTab; reviews?: number }) {
+  const tabs: Array<[DealershipTab, string, string]> = [
+    ["home", "Home", `/d/${id}`],
+    ["agent", "Agent studio", `/d/${id}/agent`],
+    ["calls", "Calls", `/d/${id}/calls`],
+    ["reviews", "Reviews", `/d/${id}#reviews`],
+    ["people", "People", `/d/${id}#people`],
+  ];
+  return (
+    <div className="subnav">
+      <div className="subnav-inner">
+        <span className="subnav-name">{name}</span>
+        <nav aria-label={`${name} sections`}>
+          {tabs.map(([key, label, href]) => (
+            <Link key={key} href={href} aria-current={current === key ? "page" : undefined}>
+              {label}
+              {key === "reviews" && reviews > 0 && <span className="count">{reviews}</span>}
+            </Link>
+          ))}
+        </nav>
+      </div>
+    </div>
+  );
+}

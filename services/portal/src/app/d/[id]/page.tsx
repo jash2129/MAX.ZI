@@ -11,9 +11,10 @@ import {
   revokeApiKeyAction,
   setWebhookAction,
 } from "@/app/actions";
-import { KIND_LABEL, Notices, Shell, Status } from "@/components/chrome";
+import { DealershipNav, KIND_LABEL, Notices, Shell, Status } from "@/components/chrome";
 import { portalDb } from "@/server/db";
-import { KINDS, auditLog, dashboard, getDealership, getWebhook, listApiKeys, listPeople, listVersions, permissions } from "@/server/portal";
+import { KINDS, auditLog, dashboard, getDealership, getVersion, getWebhook, listApiKeys, listPeople, listVersions, permissions, type Kind } from "@/server/portal";
+import { agentSettings } from "../../../../../../tavus-avatar/src/lib/native-engine";
 import { requirePerson } from "@/server/session";
 
 export const dynamic = "force-dynamic";
@@ -44,15 +45,39 @@ export default async function DealershipPage({ params, searchParams }: { params:
   const newSecret = jar.get("flash_webhook_secret")?.value ?? null;
   const show = (v: number | null, unit = "%") => (v === null ? "n/a" : `${v}${unit}`);
 
+  // What Max runs on now, for the cards
+  const liveOf = (i: number) => versions[i].find((x) => x.status === "live") ?? null;
+  const [liveScript, livePrice, liveKb] = await Promise.all(
+    KINDS.map((k, i) => (liveOf(i) ? getVersion(db, person.id, k, liveOf(i)!.id) : Promise.resolve(null)))
+  );
+  const agent = agentSettings(liveScript?.agent);
+  const guardsOn = [agent.priceLadder, agent.disclosure, agent.scriptTalkingPoints].filter(Boolean).length;
+  const pending = (i: number) => versions[i].filter((x) => x.status === "draft" || x.status === "in_test");
+  const reviews = versions.flat().filter((x) => x.status === "in_test").length;
+  const editHref = (kind: Kind, vid: string) => (kind === "script" ? `/d/${id}/agent?v=${vid}` : `/d/${id}/${kind}/${vid}`);
+  const todos = KINDS.flatMap((kind, i) =>
+    pending(i).map((v) => {
+      const r = v.test_result;
+      if (v.status === "draft") return { key: v.id, badge: "draft", title: `${KIND_LABEL[kind]} v${v.version} is a draft`, text: "Test it, then send it for review.", href: editHref(kind, v.id), link: "Continue editing →" };
+      const text = !r ? "Run the automatic test, then an approver reviews it." : r.hard_failures > 0 ? `The automatic test failed: ${r.hard_failures} of ${r.calls} calls broke a safety rule.` : "Automatic test passed. An approver needs to look at the changes.";
+      return { key: v.id, badge: "in_test", title: `${KIND_LABEL[kind]} v${v.version} is waiting for review`, text, href: `/d/${id}/${kind}/${v.id}`, link: "Review changes →" };
+    })
+  );
+  const steps = (liveScript?.beats as unknown[] | undefined)?.length ?? 0;
+  const ladder = ((livePrice?.steps as number[] | undefined) ?? []).map(Number);
+  const facts = ((liveKb?.facts as unknown[] | undefined) ?? []).length;
+  const money = (n: number) => `$${n.toFixed(2)}`;
+  const tag = (i: number) => {
+    const l = liveOf(i);
+    return l ? <span className="badge live">v{l.version} live</span> : <span className="badge in_test">not live</span>;
+  };
+  const extra = (i: number) => {
+    const p = pending(i)[0];
+    return p ? <span className="muted" style={{ fontSize: 13 }}>v{p.version} {p.status === "draft" ? "draft" : "in review"}</span> : null;
+  };
+
   return (
-    <Shell person={person}>
-      <p>
-        <Link href="/">Dealerships</Link>
-      </p>
-      <h1>{dealership.name}</h1>
-      <p className="muted">
-        {dealership.id} · Max is called {dealership.max_display_name} · {can.approve ? "you can approve" : can.edit ? "you can edit" : "view only"}
-      </p>
+    <Shell person={person} sub={<DealershipNav id={id} name={dealership.name} current="home" reviews={reviews} />}>
       <Notices
         search={search}
         ok={{
@@ -61,61 +86,230 @@ export default async function DealershipPage({ params, searchParams }: { params:
           created: "Dealership created with draft versions copied from the template.",
         }}
       />
-      {!live && (
-        <p className="notice warn">
-          Not taking calls yet: the script, price ladder and knowledge base each need an approved, live version. Open each draft, submit it, run the
-          release gate, and have an approver approve it.
+
+      <section className="hero" aria-labelledby="status-h">
+        <div>
+          <span className={`live-flag ${live ? "on" : "off"}`}>
+            <span className="dot" aria-hidden="true" />
+            {live ? "Live · taking calls" : "Not taking calls yet"}
+          </span>
+          <h1 id="status-h">{live ? `${dealership.max_display_name} is answering calls for ${dealership.name}` : `${dealership.max_display_name} isn't live for ${dealership.name} yet`}</h1>
+          <p>
+            {live
+              ? `New calls use: Script v${liveOf(0)!.version} · Price ladder v${liveOf(1)!.version} · Knowledge base v${liveOf(2)!.version}. Calls in progress keep the version they started with.`
+              : "The script, price ladder and knowledge base each need an approved, live version. Finish each draft below and send it for review."}
+          </p>
+          <p style={{ fontSize: 13 }}>
+            {can.approve ? "You can edit and approve." : can.edit ? "You can edit; an approver makes changes live." : "You can view."} · {dealership.id}
+          </p>
+        </div>
+        <div className="row">
+          <Link className="button primary" href={`/d/${id}/agent`}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+              <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
+              <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+              <path d="M12 19v3" />
+            </svg>
+            Test Max now
+          </Link>
+          <Link className="button" href={`/d/${id}/agent`}>
+            Open Agent studio
+          </Link>
+        </div>
+      </section>
+
+      <h2 id="reviews">Needs your attention</h2>
+      {todos.length ? (
+        <div className="tiles">
+          {todos.map((t) => (
+            <div key={t.key} className="todo">
+              <span className={`badge ${t.badge}`} style={{ flex: "none" }}>
+                {t.badge === "draft" ? "Draft" : "In review"}
+              </span>
+              <div>
+                <strong>{t.title}</strong>
+                <span className="small">{t.text}</span>
+                <Link href={t.href} style={{ fontWeight: 600, fontSize: 14 }}>
+                  {t.link}
+                </Link>
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="panel muted" style={{ margin: 0 }}>
+          Nothing waiting. Everything customers hear is approved.
         </p>
       )}
 
-      <div className="panel" style={{ marginTop: 16 }}>
-        <div className="row" style={{ justifyContent: "space-between" }}>
-          <div>
-            <strong>Agent</strong>
-            <div className="muted">Prompt, context, greeting, knowledge documents and guardrails, with a test chat.</div>
+      <section className="panel" aria-labelledby="how-h" style={{ marginTop: 24, display: "flex", flexDirection: "column", gap: 14 }}>
+        <div className="row" style={{ justifyContent: "space-between", alignItems: "baseline" }}>
+          <h2 id="how-h" style={{ margin: 0, fontSize: 17 }}>
+            How a change reaches customers
+          </h2>
+          <span className="muted" style={{ fontSize: 14 }}>
+            Nothing you edit reaches a call until step 4.
+          </span>
+        </div>
+        <ol className="steps">
+          <li>
+            <b>
+              <span className="n" style={{ background: "var(--draft)" }}>1</span>Draft
+            </b>
+            <span className="small">Edit freely and test it yourself.</span>
+          </li>
+          <li>
+            <b>
+              <span className="n" style={{ background: "var(--warn)" }}>2</span>Automatic test
+            </b>
+            <span className="small">Locked. Simulated customers call Max and every safety rule is checked.</span>
+          </li>
+          <li>
+            <b>
+              <span className="n" style={{ background: "var(--accent)" }}>3</span>Approver review
+            </b>
+            <span className="small">An approver sees exactly what changed and says yes.</span>
+          </li>
+          <li className="last">
+            <b>
+              <span className="n" style={{ background: "var(--ok)" }}>4</span>Live
+            </b>
+            <span className="small">New calls use it. One click rolls back to the previous version.</span>
+          </li>
+        </ol>
+      </section>
+
+      <h2>What {dealership.max_display_name} is made of</h2>
+      <div className="tiles">
+        <article className="tile">
+          <div className="tile-head">
+            <h3>Agent</h3>
+            {tag(0)}
           </div>
-          <Link className="button" href={`/d/${id}/agent`}>
-            Open the Agent page →
-          </Link>
+          <p>How {dealership.max_display_name} talks: personality, context, greeting, documents and safety switches.</p>
+          <dl>
+            <dt>Prompt</dt>
+            <dd>{liveScript?.native_prompt ? "Your own" : "Built-in"}</dd>
+            <dt>Documents</dt>
+            <dd>{agent.docs.length}</dd>
+            <dt>Safety switches</dt>
+            <dd>{guardsOn === 3 ? "All on" : `${guardsOn} of 3 on`}</dd>
+          </dl>
+          {extra(0)}
+          <div className="actions">
+            <Link className="button soft" href={`/d/${id}/agent`}>
+              Edit &amp; test
+            </Link>
+          </div>
+        </article>
+        <article className="tile">
+          <div className="tile-head">
+            <h3>Talking points</h3>
+            {tag(0)}
+          </div>
+          <p>The approved script {dealership.max_display_name} draws from, plus the recording disclosure.</p>
+          <dl>
+            <dt>Script</dt>
+            <dd>{steps ? `${steps} beats` : "none live"}</dd>
+            <dt>Disclosure</dt>
+            <dd>Word for word</dd>
+          </dl>
+          {extra(0)}
+          <div className="actions">
+            <Link className="button soft" href={liveOf(0) ? `/d/${id}/script/${(pending(0)[0] ?? liveOf(0))!.id}` : `/d/${id}#versions`}>
+              Edit &amp; test
+            </Link>
+          </div>
+        </article>
+        <article className="tile">
+          <div className="tile-head">
+            <h3>Price ladder</h3>
+            {tag(1)}
+          </div>
+          <p>The only daily prices {dealership.max_display_name} may say, highest first.</p>
+          {ladder.length ? (
+            <div className="ladder" aria-label="Daily prices, highest first">
+              {ladder.map((n, i) => (
+                <span key={i} style={{ display: "contents" }}>
+                  <span className={i === ladder.length - 1 ? "floor" : undefined}>
+                    {money(n)}
+                    {i === ladder.length - 1 ? " floor" : ""}
+                  </span>
+                  {i < ladder.length - 1 && <i aria-hidden="true">→</i>}
+                </span>
+              ))}
+            </div>
+          ) : (
+            <p>No live price ladder.</p>
+          )}
+          {extra(1)}
+          <div className="actions">
+            <Link className="button soft" href={`/d/${id}/price/${(pending(1)[0] ?? liveOf(1) ?? versions[1][0])?.id ?? ""}`}>
+              Edit &amp; test
+            </Link>
+          </div>
+        </article>
+        <article className="tile">
+          <div className="tile-head">
+            <h3>Knowledge base</h3>
+            {tag(2)}
+          </div>
+          <p>Approved answers to customer questions. {dealership.max_display_name} can&apos;t state facts outside it.</p>
+          <dl>
+            <dt>Facts</dt>
+            <dd>{facts}</dd>
+            <dt>Shared facts</dt>
+            <dd>Included</dd>
+          </dl>
+          {extra(2)}
+          <div className="actions">
+            <Link className="button soft" href={`/d/${id}/kb/${(pending(2)[0] ?? liveOf(2) ?? versions[2][0])?.id ?? ""}`}>
+              Edit &amp; test
+            </Link>
+          </div>
+        </article>
+      </div>
+
+      <div className="section-head">
+        <h2>Calls, last 30 days</h2>
+        <Link href={`/d/${id}/calls`} style={{ fontWeight: 600 }}>
+          All calls →
+        </Link>
+      </div>
+      <div className="tiles">
+        <div className="tile stat">
+          <span className="small">Calls</span>
+          <span className="big">{stats.calls}</span>
+          <span className="small">{stats.calls ? "in the last 30 days" : "No customer calls yet"}</span>
+        </div>
+        <div className="tile stat">
+          <span className="small">Reached the price · finished</span>
+          <span className="big">{show(stats.price_reached_rate)}</span>
+          <span className="small">Finished the call: {show(stats.completed_rate)} · targets 90% and 80%</span>
+        </div>
+        <div className="tile stat">
+          <span className="small">Took the package</span>
+          <span className="big">{show(stats.take_rate)}</span>
+          <span className="small">Average daily rate {stats.avg_final_rate === null ? "n/a" : `$${stats.avg_final_rate.toFixed(2)}`}</span>
+        </div>
+        <div className="tile stat">
+          <span className="small">{dealership.max_display_name} starts speaking after</span>
+          <span className="big">{show(stats.first_audio_ms.median, " ms")}</span>
+          <span className="small">90th percentile {show(stats.first_audio_ms.p90, " ms")}, over {stats.first_audio_ms.turns} turns</span>
+        </div>
+        <div className={`tile stat`} style={stats.compliance_failures ? { borderColor: "var(--bad)", background: "var(--bad-bg)" } : undefined}>
+          <span className="small">Calls breaking a safety rule</span>
+          <span className="big" style={stats.compliance_failures ? { color: "var(--bad)" } : undefined}>
+            {stats.compliance_failures}
+          </span>
+          <span className="small">{stats.compliance_failures ? "Open the calls list to see which" : "None"}</span>
         </div>
       </div>
 
-      <h2>Last 30 days</h2>
-      <div className="grid2">
-        <div className="panel">
-          <div className="muted">Calls</div>
-          <div style={{ fontSize: 26, fontWeight: 650 }}>{stats.calls}</div>
-          <Link href={`/d/${id}/calls`}>See all calls</Link>
-        </div>
-        <div className="panel">
-          <div className="muted">Completed the script · reached the price</div>
-          <div style={{ fontSize: 22, fontWeight: 650 }}>
-            {show(stats.completed_rate)} · {show(stats.price_reached_rate)}
-          </div>
-          <div className="muted">PRD targets: 80% and 90%</div>
-        </div>
-        <div className="panel">
-          <div className="muted">Took the package · average daily rate</div>
-          <div style={{ fontSize: 22, fontWeight: 650 }}>
-            {show(stats.take_rate)} · {stats.avg_final_rate === null ? "n/a" : `$${stats.avg_final_rate.toFixed(2)}`}
-          </div>
-        </div>
-        <div className="panel">
-          <div className="muted">Max starts speaking after (median · 90th percentile)</div>
-          <div style={{ fontSize: 22, fontWeight: 650 }}>
-            {show(stats.first_audio_ms.median, " ms")} · {show(stats.first_audio_ms.p90, " ms")}
-          </div>
-          <div className="muted">From the end of the customer&apos;s turn, over {stats.first_audio_ms.turns} turns</div>
-        </div>
-        <div className={`panel ${stats.compliance_failures ? "notice error" : ""}`}>
-          <div className="muted">Calls failing a compliance check</div>
-          <div style={{ fontSize: 26, fontWeight: 650 }}>{stats.compliance_failures}</div>
-        </div>
-      </div>
-
+      <h2 id="versions">Version history</h2>
       {KINDS.map((kind, i) => (
-        <section key={kind}>
-          <h2>{KIND_LABEL[kind]}</h2>
+        <section key={kind} style={{ marginBottom: 20 }}>
+          <h3 style={{ margin: "0 0 8px" }}>{KIND_LABEL[kind]}</h3>
           <div className="scroll">
             <table>
               <thead>
@@ -123,7 +317,7 @@ export default async function DealershipPage({ params, searchParams }: { params:
                   <th>Version</th>
                   <th>Status</th>
                   <th>Created</th>
-                  <th>Test gate</th>
+                  <th>Automatic test</th>
                   <th>Approved</th>
                 </tr>
               </thead>
@@ -143,7 +337,7 @@ export default async function DealershipPage({ params, searchParams }: { params:
                     </td>
                     <td>
                       {v.test_result
-                        ? `${v.test_result.hard_failures === 0 ? "passed" : "failed"}: ${v.test_result.calls} calls, ${v.test_result.hard_failures} hard failures, ${v.test_result.completion_rate}% completed`
+                        ? `${v.test_result.hard_failures === 0 ? "Passed" : "Failed"}: ${v.test_result.calls} calls, ${v.test_result.hard_failures} broke a safety rule`
                         : "not run"}
                     </td>
                     <td>

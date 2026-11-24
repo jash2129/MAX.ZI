@@ -10,7 +10,7 @@ import {
   statusAction,
 } from "@/app/actions";
 import { AgentChat } from "@/components/agent-chat";
-import { KIND_LABEL, Notices, Shell, Status } from "@/components/chrome";
+import { DealershipNav, KIND_LABEL, Notices, Shell, Status } from "@/components/chrome";
 import { portalDb } from "@/server/db";
 import {
   BUILT_IN_FREE_PROMPT,
@@ -75,53 +75,40 @@ export default async function VersionPage({
     }>;
   };
 
-  return (
-    <Shell person={person}>
-      <p>
-        <Link href="/">Dealerships</Link> /{" "}
-        <Link href={`/d/${id}`}>{dealership.name}</Link>
-      </p>
-      <h1>
-        {KIND_LABEL[kind]} v{v.version} <Status status={v.status} />
-      </h1>
-      {v.notes && <p className="muted">{v.notes}</p>}
-      <Notices
-        search={search}
-        ok={{ saved: "Draft saved.", gate: "Release gate run: {v}." }}
-      />
+  const passed = Boolean(result && result.hard_failures === 0);
+  const stateLine: Record<string, string> = {
+    draft: can.edit ? "Draft: edit it below and test it on the right, then send it for review. Nothing reaches a call until an approver approves it." : "Draft: only a manager can edit it.",
+    in_test: "In review: locked, so what the approver sees is exactly what goes live. Run the automatic test, then an approver decides.",
+    approved: "Approved.",
+    live: "Live: new calls use this version.",
+    retired: can.approve ? "Retired: you can make it live again (one-step rollback)." : "Retired: an earlier version.",
+  };
 
-      {/* -------- what happens next -------- */}
-      <div className="panel">
-        {v.status === "draft" && (
-          <p>
-            Draft.{" "}
-            {can.edit
-              ? "Edit it below, then submit it for testing. Nothing reaches a call until an approver approves it."
-              : "Only a manager can edit it."}
+  return (
+    <Shell person={person} sub={<DealershipNav id={id} name={dealership.name} current={v.status === "in_test" ? "reviews" : undefined} />}>
+      <p style={{ margin: "0 0 8px" }}>
+        <Link href={`/d/${id}`}>← {dealership.name}</Link>
+      </p>
+      <div className="studio-bar">
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: "1 1 480px" }}>
+          <span>
+            <Status status={v.status} />
+          </span>
+          <h1 style={{ margin: 0 }}>
+            {KIND_LABEL[kind]} v{v.version}
+          </h1>
+          <p className="muted" style={{ margin: 0 }}>
+            {stateLine[v.status] ?? v.status}
+            {v.notes ? ` · Note: "${v.notes}"` : ""}
           </p>
-        )}
-        {v.status === "in_test" && (
-          <p>
-            In test. Run the release gate, then an approver reviews the changes
-            and the result and approves it. Its content can no longer change.
-          </p>
-        )}
-        {v.status === "live" && <p>Live: new calls use this version.</p>}
-        {v.status === "retired" && (
-          <p>
-            Retired.{" "}
-            {can.approve
-              ? "You can make it live again (one-step rollback)."
-              : ""}
-          </p>
-        )}
+        </div>
         <div className="row">
           {editable && (
             <form action={statusAction}>
               <Hidden d={id} kind={kind} v={versionId} />
               <input type="hidden" name="to" value="in_test" />
               <button className="primary" type="submit">
-                Submit for testing
+                Send for review
               </button>
             </form>
           )}
@@ -133,31 +120,6 @@ export default async function VersionPage({
               </button>
             </form>
           )}
-          {v.status === "in_test" && can.edit && (
-            <form action={runGateAction}>
-              <Hidden d={id} kind={kind} v={versionId} />
-              <button type="submit">Run release gate (16 calls)</button>
-            </form>
-          )}
-          {v.status === "in_test" && can.edit && (
-            <form action={statusAction}>
-              <Hidden d={id} kind={kind} v={versionId} />
-              <input type="hidden" name="to" value="draft" />
-              <button type="submit">Back to draft</button>
-            </form>
-          )}
-          {v.status === "in_test" && can.approve && (
-            <form action={approveAction}>
-              <Hidden d={id} kind={kind} v={versionId} />
-              <button
-                className="primary"
-                type="submit"
-                disabled={!result || result.hard_failures > 0}
-              >
-                Approve and make live
-              </button>
-            </form>
-          )}
           {v.status === "retired" && can.approve && (
             <form action={rollbackAction}>
               <Hidden d={id} kind={kind} v={versionId} />
@@ -166,16 +128,86 @@ export default async function VersionPage({
           )}
         </div>
       </div>
+      <Notices search={search} ok={{ saved: "Draft saved.", gate: "Automatic test run: {v}." }} />
+
+      {v.status === "in_test" && (
+        <>
+          <div className="checks">
+            <div className="check-card">
+              <span className={`icon ${!result ? "wait" : passed ? "ok" : "bad"}`} aria-hidden="true">
+                {!result ? "…" : passed ? "✓" : "!"}
+              </span>
+              <div>
+                <strong>{!result ? "Automatic test not run yet" : passed ? "Automatic test passed" : "Automatic test failed"}</strong>
+                <span className="small">
+                  {result ? `${result.calls} simulated calls · ${result.hard_failures} broke a safety rule` : "Simulated customers call Max on this version."}
+                </span>
+              </div>
+            </div>
+            <div className="check-card">
+              <span className="icon info" aria-hidden="true">
+                ⏸
+              </span>
+              <div>
+                <strong>Locked while in review</strong>
+                <span className="small">What you see is exactly what goes live</span>
+              </div>
+            </div>
+            <div className="check-card">
+              <span className={`icon ${can.approve ? "ok" : "info"}`} aria-hidden="true">
+                {can.approve ? "✓" : "i"}
+              </span>
+              <div>
+                <strong>{can.approve ? "You can approve this" : "An approver decides"}</strong>
+                <span className="small">New calls switch right away; calls in progress keep theirs</span>
+              </div>
+            </div>
+          </div>
+          <section className="panel" aria-labelledby="decide-h" style={{ display: "flex", flexDirection: "column", gap: 12, marginBottom: 8 }}>
+            <h2 id="decide-h" style={{ margin: 0, fontSize: 18 }}>
+              {can.approve ? "Your decision" : "Next step"}
+            </h2>
+            <div className="row">
+              {can.edit && (
+                <form action={runGateAction}>
+                  <Hidden d={id} kind={kind} v={versionId} />
+                  <button type="submit" className={result ? "" : "primary"}>
+                    {result ? "Run the automatic test again" : "Run the automatic test (16 simulated calls)"}
+                  </button>
+                </form>
+              )}
+              {can.approve && (
+                <form action={approveAction}>
+                  <Hidden d={id} kind={kind} v={versionId} />
+                  <button className="go" type="submit" disabled={!passed} title={passed ? "" : "The automatic test must pass first"}>
+                    Approve and go live
+                  </button>
+                </form>
+              )}
+              {can.edit && (
+                <form action={statusAction}>
+                  <Hidden d={id} kind={kind} v={versionId} />
+                  <input type="hidden" name="to" value="draft" />
+                  <button type="submit">Send back for changes</button>
+                </form>
+              )}
+            </div>
+            <span className="muted" style={{ fontSize: 14 }}>
+              Talk to Max on this version first with the test panel below. After it goes live, the previous version can be restored in one click.
+            </span>
+          </section>
+        </>
+      )}
 
       {/* -------- release gate result -------- */}
       {result && (
         <>
-          <h2>Release gate</h2>
+          <h2>Automatic test result</h2>
           <p
             className={`notice ${result.hard_failures === 0 ? "ok" : "error"}`}
           >
             {result.hard_failures === 0 ? "Passed" : "Failed"}: {result.calls}{" "}
-            simulated calls, {result.hard_failures} with a hard failure,{" "}
+            simulated calls, {result.hard_failures} broke a safety rule,{" "}
             {result.completion_rate}% completed
             {result.price_reached_rate !== undefined
               ? `, ${result.price_reached_rate}% reached the price`
@@ -191,7 +223,7 @@ export default async function VersionPage({
                     <th>Customer</th>
                     <th>Completed</th>
                     <th>Furthest beat</th>
-                    <th>Hard failures</th>
+                    <th>Safety rules broken</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -218,9 +250,10 @@ export default async function VersionPage({
       {diff && (
         <>
           <h2>
-            Changes from the live version
-            {diff.liveVersion ? ` (v${diff.liveVersion})` : ""}
+            What changes for customers
+            {diff.liveVersion ? ` (against live v${diff.liveVersion})` : ""}
           </h2>
+          <p className="muted" style={{ marginTop: -6 }}>Only these lines change. Everything else stays as it is in the live version.</p>
           {diff.rows.length === 0 ? (
             <p className="muted">No changes.</p>
           ) : (
@@ -229,8 +262,8 @@ export default async function VersionPage({
                 <thead>
                   <tr>
                     <th>What</th>
-                    <th>Live now</th>
-                    <th>This version</th>
+                    <th>Now (live)</th>
+                    <th>After approval</th>
                   </tr>
                 </thead>
                 <tbody>

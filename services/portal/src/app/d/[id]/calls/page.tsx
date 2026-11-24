@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-import { Shell } from "@/components/chrome";
+import { DealershipNav, Shell } from "@/components/chrome";
 import { portalDb } from "@/server/db";
 import { getDealership, listCalls } from "@/server/portal";
 import { requirePerson } from "@/server/session";
@@ -16,7 +16,7 @@ export default async function Calls({ params }: { params: Promise<{ id: string }
   const db = portalDb();
   const [dealership, calls] = await Promise.all([getDealership(db, person.id, id), listCalls(db, person.id, id, 100)]);
   return (
-    <Shell person={person}>
+    <Shell person={person} sub={<DealershipNav id={id} name={dealership.name} current="calls" />}>
       <p>
         <Link href="/">Dealerships</Link> / <Link href={`/d/${id}`}>{dealership.name}</Link>
       </p>

@@ -27,6 +27,8 @@ export interface AgentTestReply {
   /** "native" = the AI's reply passed every check; "neutral" = a check refused it twice (why: reason) */
   mode: string;
   reason?: string;
+  /** the AI's first reply was stopped by a check (why), and the retry passed */
+  retried?: string;
   ms?: number;
   /** the dealership this test runs for (the version's own) */
   dealership: string;
@@ -79,6 +81,10 @@ export async function agentTestTurn(db: Db, userId: string, versionId: string, i
       ended: Boolean(d.isScriptComplete),
       mode: d.metrics?.mode ?? "native",
       reason: d.metrics?.mode === "neutral" ? d.metrics?.freeReason : undefined,
+      retried:
+        d.metrics?.mode === "native" && /^ok on retry/.test(d.metrics?.freeReason ?? "")
+          ? (d.metrics?.freeReason ?? "").replace(/^ok on retry \(first try (rejected: )?/, "").replace(/\)$/, "")
+          : undefined,
       ms: d.metrics?.freeMs,
       dealership,
       tracked: tracked(d.state),

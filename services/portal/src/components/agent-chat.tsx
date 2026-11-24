@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { endOfTurnWaitMs } from "../../../../tavus-avatar/src/lib/turn-taking";
 
-type Line = { who: "max" | "customer"; text: string; mode?: string; reason?: string; ms?: number };
+type Line = { who: "max" | "customer"; text: string; mode?: string; reason?: string; retried?: string; ms?: number };
 type Tracked = { disclosureGiven: boolean; lowestOffered: number | null; outcome: "open" | "accepted" | "declined" };
 type Phase = "idle" | "listening" | "thinking" | "speaking";
 
@@ -76,7 +76,7 @@ export function AgentChat({ versionId, label, kind = "script", dealershipName }:
       const r = await res.json();
       if (!res.ok) throw new Error(r?.error || "The test turn failed.");
       const waited = message !== undefined && turnRef.current.endedAt ? Date.now() - turnRef.current.endedAt : undefined;
-      setLines((l) => [...l, { who: "max", text: r.reply, mode: r.mode, reason: r.reason, ms: waited ?? r.ms }]);
+      setLines((l) => [...l, { who: "max", text: r.reply, mode: r.mode, reason: r.reason, retried: r.retried, ms: waited ?? r.ms }]);
       stateRef.current = r.state;
       setState(r.state);
       setTracked(r.tracked);
@@ -200,6 +200,10 @@ export function AgentChat({ versionId, label, kind = "script", dealershipName }:
     setPhase((p) => (p === "thinking" ? p : "idle"));
   }
 
+  function setMode(wantVoice: boolean) {
+    if (wantVoice !== voice) toggleVoice();
+  }
+
   function toggleVoice() {
     if (voice) {
       setVoice(false);
@@ -249,20 +253,25 @@ export function AgentChat({ versionId, label, kind = "script", dealershipName }:
 
   return (
     <div className="panel agent-chat">
-      <div className="row" style={{ justifyContent: "space-between" }}>
-        <strong>
-          Test {label}
-          {dealershipName ? ` · ${dealershipName}` : ""}
-        </strong>
-        <div className="row">
-          <button type="button" onClick={toggleVoice} disabled={!voiceSupported} aria-pressed={voice} title={voiceSupported ? "" : "This browser has no speech recognition: use Chrome or Edge"}>
-            {voice ? "🎙 Voice on" : "Voice off"}
+      <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
+        <div style={{ display: "flex", flexDirection: "column" }}>
+          <strong style={{ fontSize: 16 }}>Test {label}</strong>
+          <span className="muted" style={{ fontSize: 13 }}>
+            {dealershipName ? `${dealershipName} · ` : ""}nothing reaches customers
+          </span>
+        </div>
+        <div className="seg" role="group" aria-label="How you talk to Max">
+          <button type="button" aria-pressed={!voice} onClick={() => setMode(false)}>
+            Type
           </button>
-          <button type="button" className="primary" onClick={() => void start()} disabled={busy}>
-            {lines.length ? "Start over" : "Start a test call"}
+          <button type="button" aria-pressed={voice} onClick={() => setMode(true)} disabled={!voiceSupported} title={voiceSupported ? "" : "Voice needs Chrome or Edge"}>
+            Voice
           </button>
         </div>
       </div>
+      <button type="button" className="primary" onClick={() => void start()} disabled={busy} style={{ width: "100%" }}>
+        {lines.length ? "Start over" : "Start a test call"}
+      </button>
       <p className="muted" style={{ marginTop: 6 }}>
         You play the customer: type, or turn voice on and talk. Max runs on this version{dealershipName ? ` of ${dealershipName}` : ""}
         {kind === "script" ? "" : ", with the dealership's live script"}{kind === "kb" ? " and price ladder" : kind === "price" ? " and knowledge base" : ""}, with every check on. Nothing reaches a customer, and testing approves
@@ -278,7 +287,12 @@ export function AgentChat({ versionId, label, kind = "script", dealershipName }:
             {l.who === "max" && l.mode === "neutral" && (
               <div className="chat-tag warn">A check refused the AI&apos;s reply twice, so Max said a neutral line{l.reason ? `: ${l.reason}` : ""}</div>
             )}
-            {l.who === "max" && l.mode === "native" && typeof l.ms === "number" && <div className="chat-tag">replied after {(l.ms / 1000).toFixed(1)} s</div>}
+            {l.who === "max" && l.mode === "native" && (
+              <div className="chat-tag chat-ok">
+                ✓ Passed every check{typeof l.ms === "number" ? ` · replied after ${(l.ms / 1000).toFixed(1)} s` : ""}
+              </div>
+            )}
+            {l.who === "max" && l.retried && <div className="chat-tag chat-retry">First try was stopped ({l.retried}). Fixed on the retry.</div>}
           </div>
         ))}
         {heard && (
@@ -299,11 +313,23 @@ export function AgentChat({ versionId, label, kind = "script", dealershipName }:
       {status[phase] && <p className={`chat-status ${phase}`}>{status[phase]}</p>}
       {error && <p className="notice error">{error}</p>}
       {tracked && (
-        <p className="muted chat-tracked">
-          Disclosure {tracked.disclosureGiven ? "given" : "not yet given"} · lowest price offered {tracked.lowestOffered === null ? "none" : `$${tracked.lowestOffered.toFixed(2)} a day`} ·
-          outcome {tracked.outcome}
-          {ended ? " · call ended" : ""}
-        </p>
+        <dl className="tracked-grid" aria-label="What the app tracked">
+          <div>
+            <dt>Disclosure</dt>
+            <dd>{tracked.disclosureGiven ? "Given" : "Not yet"}</dd>
+          </div>
+          <div>
+            <dt>Lowest price</dt>
+            <dd>{tracked.lowestOffered === null ? "None yet" : `$${tracked.lowestOffered.toFixed(2)} / day`}</dd>
+          </div>
+          <div>
+            <dt>Outcome</dt>
+            <dd>
+              {tracked.outcome === "accepted" ? "Accepted" : tracked.outcome === "declined" ? "Declined" : "Open"}
+              {ended ? " · ended" : ""}
+            </dd>
+          </div>
+        </dl>
       )}
       <form onSubmit={send} className="row chat-input">
         <input

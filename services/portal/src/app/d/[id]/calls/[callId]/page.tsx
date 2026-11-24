@@ -1,7 +1,7 @@
 import Link from "next/link";
 
 import { forgetCallAction } from "@/app/actions";
-import { Notices, Shell } from "@/components/chrome";
+import { DealershipNav, Notices, Shell } from "@/components/chrome";
 import { portalDb } from "@/server/db";
 import { getCall, getDealership, permissions } from "@/server/portal";
 import { requirePerson } from "@/server/session";
@@ -29,7 +29,7 @@ export default async function CallDetail({ params, searchParams }: { params: Pro
   ]);
   const checks = (review?.compliance_checks ?? {}) as Record<string, boolean>;
   return (
-    <Shell person={person}>
+    <Shell person={person} sub={<DealershipNav id={id} name={dealership.name} current="calls" />}>
       <p>
         <Link href="/">Dealerships</Link> / <Link href={`/d/${id}`}>{dealership.name}</Link> / <Link href={`/d/${id}/calls`}>Calls</Link>
       </p>
