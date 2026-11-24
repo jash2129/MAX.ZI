@@ -374,3 +374,13 @@ describe("money in the agent's own documents", () => {
     expect(moneyMentions("about $9,500 or 9,500 dollars").values).toEqual(new Set([9500]));
   });
 });
+
+describe("replies that are not sentences (Grok, lab 2026-11-24)", () => {
+  it("a bare number is refused; a bare ladder amount must be a daily rate in words", () => {
+    const c = ctx({ lowestOffered: 3.5, pushback: true });
+    expect(guardNativeText("3.25", c, true).reason).toMatch(/not a sentence/);
+    expect(guardNativeText("I can do 3.25 for you.", c, true).reason).toMatch(/in words with "a day"/);
+    expect(guardNativeText("I can do three dollars and twenty-five cents a day.", c, true).ok).toBe(true);
+    expect(guardNativeText("Of course.", ctx(), true).ok).toBe(true);
+  });
+});

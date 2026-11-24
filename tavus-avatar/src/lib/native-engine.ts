@@ -311,6 +311,14 @@ function freeGuardCtx(ctx: NativeGuardContext): GuardContext {
 export function guardNativeText(t: string, ctx: NativeGuardContext, whole: boolean): GuardResult {
   const disclosedNow = ctx.disclosureOn === false || ctx.disclosureGiven || saysDisclosureVerbatim(t, ctx.disclosure);
   // guardFreeText's beat rule: beat 21+ = prices allowed; before the disclosure, never
+  // A reply is a sentence: Grok answered "3.25" three times in a row (lab 2026-11-24), which no other
+  // check caught (the ladder's text made its digits "approved", no "a day", too short to be a repeat)
+  if (whole && (t.match(/[a-z]{2,}/gi) ?? []).length < 2) return { ok: false, reason: "not a sentence: say it in words", prices: [] };
+  // With the ladder, a price is always a daily rate in words, never a bare amount
+  if (ctx.ladderOn !== false && !spokenDailyRates(t).length) {
+    const bare = [...t.matchAll(/\$?\s?(\d+(?:\.\d{1,2})?)/g)].map((m) => Number(m[1]));
+    if (bare.some((n) => ctx.ladder.some((p) => Math.abs(p - n) < 0.001))) return { ok: false, reason: 'a price must be said in words with "a day"', prices: [] };
+  }
   const g = guardFreeText(t, freeGuardCtx(ctx), disclosedNow ? 22 : 0, whole);
   const fail = (reason: string): GuardResult => ({ ok: false, reason, prices: g.prices });
   if (!g.ok) return /^price before Beat/.test(g.reason ?? "") ? fail("price before the recording disclosure") : g;
