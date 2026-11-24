@@ -116,3 +116,6 @@ code, .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monosp
 .chat-tracked { font-size: 13px; }
 .chat-input { flex-wrap: nowrap; }
 .chat-input input { flex: 1; min-width: 0; }
+.chat-status { font-size: 13px; font-weight: 600; margin: 4px 0; }
+.chat-status.listening { color: var(--ok); }
+.chat-status.thinking, .chat-status.speaking { color: var(--accent); }
