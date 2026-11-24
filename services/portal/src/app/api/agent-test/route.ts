@@ -28,7 +28,7 @@ export async function POST(request: Request) {
   if (!person) return NextResponse.json({ error: "Sign in again." }, { status: 401, headers: noStore });
   if (person.needsTwoFactor && !person.twoFactorEnabled) return NextResponse.json({ error: "Set up two-factor first." }, { status: 403, headers: noStore });
   if (limited(person.id)) return NextResponse.json({ error: "Too many test turns. Wait a few minutes." }, { status: 429, headers: noStore });
-  let body: { version?: unknown; state?: unknown; message?: unknown };
+  let body: { version?: unknown; state?: unknown; message?: unknown; kind?: unknown };
   try {
     body = await request.json();
   } catch {
@@ -36,10 +36,13 @@ export async function POST(request: Request) {
   }
   const version = String(body.version ?? "");
   if (!UUID.test(version)) return NextResponse.json({ error: "Unknown version." }, { status: 400, headers: noStore });
+  const kind = body.kind === undefined ? "script" : body.kind;
+  if (kind !== "script" && kind !== "price" && kind !== "kb") return NextResponse.json({ error: "Unknown kind." }, { status: 400, headers: noStore });
   try {
     const r = await agentTestTurn(portalDb(), person.id, version, {
       state: typeof body.state === "string" ? body.state : undefined,
       message: typeof body.message === "string" ? body.message : undefined,
+      kind,
     });
     return NextResponse.json(r, { headers: noStore });
   } catch (err) {

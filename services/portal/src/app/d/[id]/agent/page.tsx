@@ -174,7 +174,7 @@ export default async function AgentPage({ params, searchParams }: { params: Prom
           </form>
 
           <div className="sticky">
-            <AgentChat versionId={v.id} label={`v${v.version} (${v.status})`} />
+            <AgentChat versionId={v.id} label={`v${v.version} (${v.status})`} dealershipName={dealership.name} />
             {editable && <p className="muted">Save the draft first: the test runs on what is saved.</p>}
           </div>
         </div>

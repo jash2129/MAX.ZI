@@ -340,14 +340,15 @@ export async function saveAgentDraft(db: Db, userId: string, versionId: string, 
 }
 
 /**
- * The call config a test chat runs on: this script version (any status the person can read) with the
- * dealership's live price ladder and knowledge base, on the prompt-native engine.
+ * The call config a test chat runs on: this version (script, price ladder or knowledge base; any status
+ * the person can read, draft included) with the same dealership's live versions of the other two, on
+ * the prompt-native engine. Always that version's own dealership: the id decides, nothing else.
  */
-export async function agentTestConfig(db: Db, userId: string, versionId: string): Promise<DealConfig> {
+export async function agentTestConfig(db: Db, userId: string, versionId: string, kind: Kind = "script"): Promise<DealConfig & { testDealership: string }> {
   return run(db, userId, async (tx) => {
-    const v = (await tx.query<any>(`select dealership_id, ${CONTENT_COLUMNS.script} from script_version where id = $1`, [versionId])).rows[0];
+    const v = (await tx.query<any>(`select dealership_id, ${CONTENT_COLUMNS[kind]} from ${TABLE[kind]} where id = $1`, [versionId])).rows[0];
     if (!v) throw new PortalError("No such version, or you don't have access to it.");
-    return { ...(await callConfigFor(tx, v.dealership_id, "script", v)), engine: "native" as const };
+    return { ...(await callConfigFor(tx, v.dealership_id, kind, v)), engine: "native" as const, testDealership: v.dealership_id };
   });
 }
 

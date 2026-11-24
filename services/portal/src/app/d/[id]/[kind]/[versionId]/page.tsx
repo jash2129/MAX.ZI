@@ -1,10 +1,27 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import { approveAction, deleteDraftAction, rollbackAction, runGateAction, saveDraftAction, statusAction } from "@/app/actions";
+import {
+  approveAction,
+  deleteDraftAction,
+  rollbackAction,
+  runGateAction,
+  saveDraftAction,
+  statusAction,
+} from "@/app/actions";
+import { AgentChat } from "@/components/agent-chat";
 import { KIND_LABEL, Notices, Shell, Status } from "@/components/chrome";
 import { portalDb } from "@/server/db";
-import { BUILT_IN_FREE_PROMPT, BUILT_IN_NATIVE_PROMPT, KINDS, diffAgainstLive, getDealership, getVersion, permissions, type Kind } from "@/server/portal";
+import {
+  BUILT_IN_FREE_PROMPT,
+  BUILT_IN_NATIVE_PROMPT,
+  KINDS,
+  diffAgainstLive,
+  getDealership,
+  getVersion,
+  permissions,
+  type Kind,
+} from "@/server/portal";
 import { requirePerson } from "@/server/session";
 
 export const dynamic = "force-dynamic";
@@ -32,16 +49,37 @@ export default async function VersionPage({
   const kind = rawKind as Kind;
   const search = await searchParams;
   const db = portalDb();
-  const [dealership, can, v] = await Promise.all([getDealership(db, person.id, id), permissions(db, person.id, id), getVersion(db, person.id, kind, versionId)]);
+  const [dealership, can, v] = await Promise.all([
+    getDealership(db, person.id, id),
+    permissions(db, person.id, id),
+    getVersion(db, person.id, kind, versionId),
+  ]);
   if (v.dealership_id !== id) notFound();
   const editable = v.status === "draft" && can.edit;
-  const diff = v.status === "in_test" || v.status === "draft" ? await diffAgainstLive(db, person.id, kind, versionId) : null;
-  const result = v.test_result as null | { calls: number; hard_failures: number; completion_rate: number; price_reached_rate?: number; source?: string; mode?: string; details?: Array<{ journey: string; completed: boolean; furthest_beat: number; hard_failed: string[] }> };
+  const diff =
+    v.status === "in_test" || v.status === "draft"
+      ? await diffAgainstLive(db, person.id, kind, versionId)
+      : null;
+  const result = v.test_result as null | {
+    calls: number;
+    hard_failures: number;
+    completion_rate: number;
+    price_reached_rate?: number;
+    source?: string;
+    mode?: string;
+    details?: Array<{
+      journey: string;
+      completed: boolean;
+      furthest_beat: number;
+      hard_failed: string[];
+    }>;
+  };
 
   return (
     <Shell person={person}>
       <p>
-        <Link href="/">Dealerships</Link> / <Link href={`/d/${id}`}>{dealership.name}</Link>
+        <Link href="/">Dealerships</Link> /{" "}
+        <Link href={`/d/${id}`}>{dealership.name}</Link>
       </p>
       <h1>
         {KIND_LABEL[kind]} v{v.version} <Status status={v.status} />
@@ -56,14 +94,27 @@ export default async function VersionPage({
       <div className="panel">
         {v.status === "draft" && (
           <p>
-            Draft. {can.edit ? "Edit it below, then submit it for testing. Nothing reaches a call until an approver approves it." : "Only a manager can edit it."}
+            Draft.{" "}
+            {can.edit
+              ? "Edit it below, then submit it for testing. Nothing reaches a call until an approver approves it."
+              : "Only a manager can edit it."}
           </p>
         )}
         {v.status === "in_test" && (
-          <p>In test. Run the release gate, then an approver reviews the changes and the result and approves it. Its content can no longer change.</p>
+          <p>
+            In test. Run the release gate, then an approver reviews the changes
+            and the result and approves it. Its content can no longer change.
+          </p>
         )}
         {v.status === "live" && <p>Live: new calls use this version.</p>}
-        {v.status === "retired" && <p>Retired. {can.approve ? "You can make it live again (one-step rollback)." : ""}</p>}
+        {v.status === "retired" && (
+          <p>
+            Retired.{" "}
+            {can.approve
+              ? "You can make it live again (one-step rollback)."
+              : ""}
+          </p>
+        )}
         <div className="row">
           {editable && (
             <form action={statusAction}>
@@ -98,7 +149,11 @@ export default async function VersionPage({
           {v.status === "in_test" && can.approve && (
             <form action={approveAction}>
               <Hidden d={id} kind={kind} v={versionId} />
-              <button className="primary" type="submit" disabled={!result || result.hard_failures > 0}>
+              <button
+                className="primary"
+                type="submit"
+                disabled={!result || result.hard_failures > 0}
+              >
                 Approve and make live
               </button>
             </form>
@@ -116,9 +171,16 @@ export default async function VersionPage({
       {result && (
         <>
           <h2>Release gate</h2>
-          <p className={`notice ${result.hard_failures === 0 ? "ok" : "error"}`}>
-            {result.hard_failures === 0 ? "Passed" : "Failed"}: {result.calls} simulated calls, {result.hard_failures} with a hard failure, {result.completion_rate}% completed
-            {result.price_reached_rate !== undefined ? `, ${result.price_reached_rate}% reached the price` : ""}. Source: {result.source ?? "unknown"}
+          <p
+            className={`notice ${result.hard_failures === 0 ? "ok" : "error"}`}
+          >
+            {result.hard_failures === 0 ? "Passed" : "Failed"}: {result.calls}{" "}
+            simulated calls, {result.hard_failures} with a hard failure,{" "}
+            {result.completion_rate}% completed
+            {result.price_reached_rate !== undefined
+              ? `, ${result.price_reached_rate}% reached the price`
+              : ""}
+            . Source: {result.source ?? "unknown"}
             {result.mode ? ` (${result.mode})` : ""}.
           </p>
           {result.details && (
@@ -138,7 +200,11 @@ export default async function VersionPage({
                       <td>{d.journey}</td>
                       <td>{d.completed ? "yes" : "no"}</td>
                       <td>{d.furthest_beat}</td>
-                      <td>{d.hard_failed.length ? d.hard_failed.join(", ") : "none"}</td>
+                      <td>
+                        {d.hard_failed.length
+                          ? d.hard_failed.join(", ")
+                          : "none"}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -151,7 +217,10 @@ export default async function VersionPage({
       {/* -------- side-by-side diff -------- */}
       {diff && (
         <>
-          <h2>Changes from the live version{diff.liveVersion ? ` (v${diff.liveVersion})` : ""}</h2>
+          <h2>
+            Changes from the live version
+            {diff.liveVersion ? ` (v${diff.liveVersion})` : ""}
+          </h2>
           {diff.rows.length === 0 ? (
             <p className="muted">No changes.</p>
           ) : (
@@ -181,78 +250,178 @@ export default async function VersionPage({
 
       {/* -------- content: editor for drafts, read-only otherwise -------- */}
       <h2>{editable ? "Edit" : "Content"}</h2>
-      <form action={saveDraftAction} className="panel">
-        <Hidden d={id} kind={kind} v={versionId} />
-        <fieldset disabled={!editable} style={{ border: "none", padding: 0, margin: 0 }}>
-          <label htmlFor="notes">Notes for the approver</label>
-          <input id="notes" name="notes" defaultValue={v.notes} />
+      <div className="agent-layout">
+        <form action={saveDraftAction} className="panel">
+          <Hidden d={id} kind={kind} v={versionId} />
+          <fieldset
+            disabled={!editable}
+            style={{ border: "none", padding: 0, margin: 0 }}
+          >
+            <label htmlFor="notes">Notes for the approver</label>
+            <input id="notes" name="notes" defaultValue={v.notes} />
 
-          {kind === "price" && (
-            <>
-              <label htmlFor="steps">Daily rates, highest first; the last one is the floor</label>
-              <input id="steps" name="steps" defaultValue={(v.steps as number[]).join(", ")} />
-              <p className="muted">Max opens at the first rate, comes down one step each time the customer pushes back, and never goes below the last.</p>
-            </>
-          )}
+            {kind === "price" && (
+              <>
+                <label htmlFor="steps">
+                  Daily rates, highest first; the last one is the floor
+                </label>
+                <input
+                  id="steps"
+                  name="steps"
+                  defaultValue={(v.steps as number[]).join(", ")}
+                />
+                <p className="muted">
+                  Max opens at the first rate, comes down one step each time the
+                  customer pushes back, and never goes below the last.
+                </p>
+              </>
+            )}
 
-          {kind === "kb" && (
-            <>
-              <label htmlFor="facts">Facts (JSON). Max answers questions only from facts with status &quot;script&quot; or &quot;approved&quot;.</label>
-              <textarea id="facts" name="facts" rows={24} defaultValue={JSON.stringify(v.facts, null, 2)} />
-            </>
-          )}
+            {kind === "kb" && (
+              <>
+                <label htmlFor="facts">
+                  Facts (JSON). Max answers questions only from facts with
+                  status &quot;script&quot; or &quot;approved&quot;.
+                </label>
+                <textarea
+                  id="facts"
+                  name="facts"
+                  rows={24}
+                  defaultValue={JSON.stringify(v.facts, null, 2)}
+                />
+              </>
+            )}
 
-          {kind === "script" && (
-            <>
-              <label htmlFor="disclosure">Recording disclosure (said word for word; Beat 1 must contain it)</label>
-              <textarea id="disclosure" name="disclosure" rows={3} defaultValue={v.disclosure} />
-              {(v.beats as Array<{ id: number; type: string; expects?: string; text: string }>).map((b) => (
-                <div key={b.id}>
-                  <label htmlFor={`beat_${b.id}`}>
-                    Beat {b.id} ({b.type}
-                    {b.expects ? `, expects ${b.expects}` : ""}){b.id === 22 ? ": must say {{per_day_price}}" : ""}
-                  </label>
-                  <textarea id={`beat_${b.id}`} name={`beat_${b.id}`} rows={3} defaultValue={b.text} />
-                </div>
-              ))}
-              <label htmlFor="fixed_lines">Fixed lines to override (JSON, e.g. {`{"HANDOFF_LINE": "..."}`})</label>
-              <textarea id="fixed_lines" name="fixed_lines" rows={6} defaultValue={JSON.stringify(v.fixed_lines ?? {}, null, 2)} />
-              <label htmlFor="recaps">Recaps for beats you reworded (JSON, by beat number)</label>
-              <textarea id="recaps" name="recaps" rows={4} defaultValue={JSON.stringify(v.recaps ?? {}, null, 2)} />
-              <p className="muted">
-                Placeholders: {"{{vehicle_year}} {{vehicle_make}} {{vehicle_model}} {{per_day_price}}"}. Prices come from the price ladder only.
+            {kind === "script" && (
+              <>
+                <label htmlFor="disclosure">
+                  Recording disclosure (said word for word; Beat 1 must contain
+                  it)
+                </label>
+                <textarea
+                  id="disclosure"
+                  name="disclosure"
+                  rows={3}
+                  defaultValue={v.disclosure}
+                />
+                {(
+                  v.beats as Array<{
+                    id: number;
+                    type: string;
+                    expects?: string;
+                    text: string;
+                  }>
+                ).map((b) => (
+                  <div key={b.id}>
+                    <label htmlFor={`beat_${b.id}`}>
+                      Beat {b.id} ({b.type}
+                      {b.expects ? `, expects ${b.expects}` : ""})
+                      {b.id === 22 ? ": must say {{per_day_price}}" : ""}
+                    </label>
+                    <textarea
+                      id={`beat_${b.id}`}
+                      name={`beat_${b.id}`}
+                      rows={3}
+                      defaultValue={b.text}
+                    />
+                  </div>
+                ))}
+                <label htmlFor="fixed_lines">
+                  Fixed lines to override (JSON, e.g.{" "}
+                  {`{"HANDOFF_LINE": "..."}`})
+                </label>
+                <textarea
+                  id="fixed_lines"
+                  name="fixed_lines"
+                  rows={6}
+                  defaultValue={JSON.stringify(v.fixed_lines ?? {}, null, 2)}
+                />
+                <label htmlFor="recaps">
+                  Recaps for beats you reworded (JSON, by beat number)
+                </label>
+                <textarea
+                  id="recaps"
+                  name="recaps"
+                  rows={4}
+                  defaultValue={JSON.stringify(v.recaps ?? {}, null, 2)}
+                />
+                <p className="muted">
+                  Placeholders:{" "}
+                  {
+                    "{{vehicle_year}} {{vehicle_make}} {{vehicle_model}} {{per_day_price}}"
+                  }
+                  . Prices come from the price ladder only.
+                </p>
+                <label htmlFor="native_prompt">
+                  <b>Max&apos;s prompt</b>: persona, goal, guidelines and tone.
+                  This runs the call (MAX.ZI&apos;s engine)
+                  {v.native_prompt ? "" : " (now: the built-in prompt)"}
+                </label>
+                <textarea
+                  id="native_prompt"
+                  name="native_prompt"
+                  rows={30}
+                  defaultValue={v.native_prompt ?? BUILT_IN_NATIVE_PROMPT}
+                />
+                <p className="muted">
+                  Write how Max should behave, in plain words. No beats: the
+                  talking points (the beats above), the facts, the price ladder
+                  and the recording disclosure are added to the prompt
+                  automatically, so don&apos;t paste them here and don&apos;t
+                  write numbers or prices. Whatever the prompt says, the code
+                  still enforces the disclosure word for word, prices only from
+                  the ladder (one step at a time, only after pushback), no
+                  invented figures, and never treating a no as a yes.
+                </p>
+                <label htmlFor="free_prompt">
+                  Free-mode prompt: how the AI runs the call when the AI runs it
+                  from a prompt
+                  {v.free_prompt ? "" : " (now: the built-in prompt)"}
+                </label>
+                <textarea
+                  id="free_prompt"
+                  name="free_prompt"
+                  rows={22}
+                  defaultValue={v.free_prompt ?? BUILT_IN_FREE_PROMPT}
+                />
+                <p className="muted">
+                  Keep every placeholder (
+                  {
+                    "{{vehicle}} {{script}} {{facts}} {{disclosure}} {{first_price}} {{price_steps}} {{floor}}"
+                  }
+                  ) and every rule sentence (the disclosure word for word, the
+                  price rules, never invent, never claim to be human). No new
+                  numbers, prices or promise words: the price ladder and facts
+                  come from their own versions. Saving checks this. Whatever the
+                  prompt says, the code still enforces the price ladder, the
+                  disclosure and no invented figures.
+                </p>
+              </>
+            )}
+            {editable && (
+              <p>
+                <button className="primary" type="submit">
+                  Save draft
+                </button>
               </p>
-              <label htmlFor="native_prompt">
-                <b>Max&apos;s prompt</b>: persona, goal, guidelines and tone. This runs the call (MAX.ZI&apos;s engine){v.native_prompt ? "" : " (now: the built-in prompt)"}
-              </label>
-              <textarea id="native_prompt" name="native_prompt" rows={30} defaultValue={v.native_prompt ?? BUILT_IN_NATIVE_PROMPT} />
-              <p className="muted">
-                Write how Max should behave, in plain words. No beats: the talking points (the beats above), the facts, the price ladder and the recording
-                disclosure are added to the prompt automatically, so don&apos;t paste them here and don&apos;t write numbers or prices. Whatever the prompt
-                says, the code still enforces the disclosure word for word, prices only from the ladder (one step at a time, only after pushback), no
-                invented figures, and never treating a no as a yes.
-              </p>
-              <label htmlFor="free_prompt">
-                Free-mode prompt: how the AI runs the call when the AI runs it from a prompt{v.free_prompt ? "" : " (now: the built-in prompt)"}
-              </label>
-              <textarea id="free_prompt" name="free_prompt" rows={22} defaultValue={v.free_prompt ?? BUILT_IN_FREE_PROMPT} />
-              <p className="muted">
-                Keep every placeholder ({"{{vehicle}} {{script}} {{facts}} {{disclosure}} {{first_price}} {{price_steps}} {{floor}}"}) and every rule sentence
-                (the disclosure word for word, the price rules, never invent, never claim to be human). No new numbers, prices or promise words: the price
-                ladder and facts come from their own versions. Saving checks this. Whatever the prompt says, the code still enforces the price ladder, the
-                disclosure and no invented figures.
-              </p>
-            </>
-          )}
+            )}
+          </fieldset>
+        </form>
+        {/* -------- test this version right here, as the dealership's own call would run it -------- */}
+        <div className="sticky">
+          <AgentChat
+            versionId={versionId}
+            kind={kind}
+            label={`${KIND_LABEL[kind]} v${v.version} (${v.status})`}
+            dealershipName={dealership.name}
+          />
           {editable && (
-            <p>
-              <button className="primary" type="submit">
-                Save draft
-              </button>
+            <p className="muted">
+              Save the draft first: the test runs on what is saved.
             </p>
           )}
-        </fieldset>
-      </form>
+        </div>
+      </div>
     </Shell>
   );
 }

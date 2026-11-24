@@ -13,7 +13,7 @@ import { randomUUID } from "node:crypto";
 import { activeStates, getOrCreateCallState, greetingOf, processControllerTurn, resetCallState, type CallState } from "../../../../tavus-avatar/src/lib/beat-controller";
 import { llmTarget } from "../../../../tavus-avatar/src/lib/llm-stream";
 import type { Db } from "../../../control-plane/src/db";
-import { PortalError, agentTestConfig } from "./portal";
+import { PortalError, agentTestConfig, type Kind } from "./portal";
 
 export const MAX_STATE_BYTES = 200_000;
 export const MAX_MESSAGE_CHARS = 1_000;
@@ -28,6 +28,8 @@ export interface AgentTestReply {
   mode: string;
   reason?: string;
   ms?: number;
+  /** the dealership this test runs for (the version's own) */
+  dealership: string;
   /** what the app tracked after this turn */
   tracked: { disclosureGiven: boolean; lowestOffered: number | null; outcome: "open" | "accepted" | "declined" };
 }
@@ -46,15 +48,15 @@ const pack = (s: CallState) => {
 };
 
 /** Starts a test call (message undefined) or runs one customer turn of it */
-export async function agentTestTurn(db: Db, userId: string, versionId: string, input: { state?: string; message?: string }): Promise<AgentTestReply> {
-  const config = await agentTestConfig(db, userId, versionId);
+export async function agentTestTurn(db: Db, userId: string, versionId: string, input: { state?: string; message?: string; kind?: Kind }): Promise<AgentTestReply> {
+  const { testDealership: dealership, ...config } = await agentTestConfig(db, userId, versionId, input.kind ?? "script");
   const id = `agent-test-${randomUUID()}`;
   try {
     if (input.message === undefined) {
       const st = getOrCreateCallState(id, config);
       const greeting = greetingOf(config);
       st.last_spoken_text = greeting;
-      return { reply: greeting, state: pack(st), ended: false, mode: "greeting", tracked: tracked(st) };
+      return { reply: greeting, state: pack(st), ended: false, mode: "greeting", dealership, tracked: tracked(st) };
     }
     const message = input.message.trim().slice(0, MAX_MESSAGE_CHARS);
     if (!message) throw new PortalError("Type what the customer says.");
@@ -78,6 +80,7 @@ export async function agentTestTurn(db: Db, userId: string, versionId: string, i
       mode: d.metrics?.mode ?? "native",
       reason: d.metrics?.mode === "neutral" ? d.metrics?.freeReason : undefined,
       ms: d.metrics?.freeMs,
+      dealership,
       tracked: tracked(d.state),
     };
   } finally {

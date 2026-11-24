@@ -12,7 +12,7 @@ import { pgliteDb } from "../../control-plane/src/pglite";
 import { loadLiveConfig } from "../../control-plane/src/live-config";
 import { seedDemo } from "../../control-plane/src/seed-demo";
 import { agentTestTurn } from "../src/server/agent-test";
-import { approve, createDraft, diffAgainstLive, getVersion, listVersions, rollbackTo, runGate, saveAgentDraft, setStatus } from "../src/server/portal";
+import { approve, createDraft, deleteDraft, diffAgainstLive, getVersion, listVersions, rollbackTo, runGate, saveAgentDraft, saveDraft, setStatus } from "../src/server/portal";
 
 const REPORT = resolve(import.meta.dirname, "../../../testing-skill/reports/sim-batch-2026-11-21T06-26-38-028Z.json");
 let db: Awaited<ReturnType<typeof pgliteDb>>;
@@ -135,5 +135,20 @@ describe("the Agent page, start to finish", () => {
     const v1 = (await listVersions(db, U.viewer, "demo-mazda", "script")).find((v) => v.version === 1)!;
     await rollbackTo(db, U.approver, "script", v1.id);
     expect((await loadLiveConfig(db, "demo-mazda"))!.script!.agent).toEqual({});
+  });
+
+  it("the editor's test runs on the version open in it, for that version's own dealership", async () => {
+    const price = await createDraft(db, U.mgr, "demo-mazda", "price");
+    await saveDraft(db, U.mgr, "price", price, { steps: [5, 4.5] });
+    const start = await agentTestTurn(db, U.mgr, price, { kind: "price" });
+    expect(start.dealership).toBe("demo-mazda");
+    aiSays({ say: "Glad to help. What would you like to know?", outcome: "open" });
+    const r = await agentTestTurn(db, U.mgr, price, { kind: "price", state: start.state, message: "Hi" });
+    expect(r.dealership).toBe("demo-mazda");
+    expect(aiBodies[0].messages[0].content).toContain("the first offer is five dollars a day");
+    // Another dealership's manager can't test it, whatever kind they claim
+    await expect(agentTestTurn(db, U.hyundaiMgr, price, { kind: "price" })).rejects.toThrow(/No such version/);
+    await expect(agentTestTurn(db, U.mgr, price, { kind: "kb" })).rejects.toThrow(/No such version/);
+    await deleteDraft(db, U.mgr, "price", price);
   });
 });

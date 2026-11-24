@@ -33,7 +33,7 @@ const recognizerClass = (): (new () => Recognizer) | null => {
  * engine with every check on. Voice here uses the browser's own speech recognition and voice, not
  * Deepgram or the avatar: it tests what Max says and when, not the call app's audio.
  */
-export function AgentChat({ versionId, label }: { versionId: string; label: string }) {
+export function AgentChat({ versionId, label, kind = "script", dealershipName }: { versionId: string; label: string; kind?: "script" | "price" | "kb"; dealershipName?: string }) {
   const [lines, setLines] = useState<Line[]>([]);
   const [state, setState] = useState<string | null>(null);
   const [tracked, setTracked] = useState<Tracked | null>(null);
@@ -71,7 +71,7 @@ export function AgentChat({ versionId, label }: { versionId: string; label: stri
       const res = await fetch("/api/agent-test", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ version: versionId, state: message === undefined ? undefined : stateRef.current, message }),
+        body: JSON.stringify({ version: versionId, kind, state: message === undefined ? undefined : stateRef.current, message }),
       });
       const r = await res.json();
       if (!res.ok) throw new Error(r?.error || "The test turn failed.");
@@ -250,7 +250,10 @@ export function AgentChat({ versionId, label }: { versionId: string; label: stri
   return (
     <div className="panel agent-chat">
       <div className="row" style={{ justifyContent: "space-between" }}>
-        <strong>Test {label}</strong>
+        <strong>
+          Test {label}
+          {dealershipName ? ` · ${dealershipName}` : ""}
+        </strong>
         <div className="row">
           <button type="button" onClick={toggleVoice} disabled={!voiceSupported} aria-pressed={voice} title={voiceSupported ? "" : "This browser has no speech recognition: use Chrome or Edge"}>
             {voice ? "🎙 Voice on" : "Voice off"}
@@ -261,7 +264,8 @@ export function AgentChat({ versionId, label }: { versionId: string; label: stri
         </div>
       </div>
       <p className="muted" style={{ marginTop: 6 }}>
-        You play the customer: type, or turn voice on and talk. Max runs on this version with every check on. Nothing reaches a customer, and testing approves
+        You play the customer: type, or turn voice on and talk. Max runs on this version{dealershipName ? ` of ${dealershipName}` : ""}
+        {kind === "script" ? "" : ", with the dealership's live script"}{kind === "kb" ? " and price ladder" : kind === "price" ? " and knowledge base" : ""}, with every check on. Nothing reaches a customer, and testing approves
         nothing.
         {!voiceSupported && " Voice needs Chrome or Edge."}
       </p>
