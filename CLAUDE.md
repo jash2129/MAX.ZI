@@ -86,6 +86,11 @@ Next.js app (`tavus-avatar/`) for an AWS Summit Sydney booth demo. Real-time con
     `HEYGEN_AVATAR_ID`, both needed on the portal's host; at most 8 sessions per person per hour; the
     avatar only gets `speak_text`, never its own AI). The customer's voice is the browser's recognizer,
     not Deepgram, and there is no barge-in.
+    **Client test links** (migration 015, `test_link`; portal `/t/<token>`, no account): a manager makes
+    one from any version's test panel ("Share with a client"); the token is shown once and stored only as
+    its sha256; the link runs that one version as its maker (stops if they lose access), expires in 1-30
+    days, can be turned off, and has caps (400 turns, 20 video sessions; `app.use_test_link` counts
+    them). The client sees only the conversation: no settings, check details or staff wording.
   - `MAX_MODE=free` - Option D (only when set): the AI runs the whole call from the full script and knowledge base
     (`src/lib/free-ai.ts`, `processFreeTurn` in `beat-controller.ts`). Code still enforces the price
     ladder ($4 → $3.50 → $3.25 → $3, one step at a time, only from Beat 22), no invented figures or risky

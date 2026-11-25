@@ -2,6 +2,7 @@ import Link from "next/link";
 
 import { newAgentDraftAction, saveAgentAction, statusAction } from "@/app/actions";
 import { AgentChat } from "@/components/agent-chat";
+import { ShareLinks } from "@/components/share-links";
 import { DealershipNav, Notices, Shell, Status } from "@/components/chrome";
 import { StudioTabs } from "@/components/studio-tabs";
 import { portalDb } from "@/server/db";
@@ -271,6 +272,7 @@ export default async function AgentPage({ params, searchParams }: { params: Prom
                 Tests what is saved: save the draft first.
               </p>
             )}
+            {can.edit && <ShareLinks personId={person.id} dealershipId={id} kind="script" versionId={v.id} back={`/d/${id}/agent?v=${v.id}`} />}
           </aside>
         </div>
       )}

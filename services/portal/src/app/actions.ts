@@ -11,6 +11,8 @@ import {
   addPerson,
   approve,
   createApiKey,
+  createTestLink,
+  revokeTestLink,
   createDealership,
   createDraft,
   forgetCall,
@@ -412,6 +414,36 @@ export async function revokeApiKeyAction(form: FormData) {
   await act(`/d/${encodeURIComponent(d)}`, async () => {
     await revokeApiKey(portalDb(), p.id, str(form, "key"));
     return `/d/${encodeURIComponent(d)}#api-keys`;
+  });
+}
+
+// ---------------------------------------------------------------------------------------------------
+// Client test links
+// ---------------------------------------------------------------------------------------------------
+
+/** Where to come back to: a portal dealership page only (never an outside address) */
+const backTo = (form: FormData) => {
+  const b = str(form, "back");
+  return /^\/d\/[a-z0-9][a-z0-9_-]{0,63}(\/[A-Za-z0-9_/-]*)?(\?[A-Za-z0-9=&_-]*)?$/.test(b) ? b : "/";
+};
+
+export async function createTestLinkAction(form: FormData) {
+  const p = await requirePerson();
+  const back = backTo(form);
+  await act(back, async () => {
+    const token = await createTestLink(portalDb(), p.id, str(form, "dealership"), kindOf(form), str(form, "version"), str(form, "label"), Number(str(form, "days")) || 7);
+    // Shown once on the next page (never in the URL), like a new API key
+    (await cookies()).set("flash_test_link", token, { httpOnly: true, sameSite: "strict", secure: secureCookies(), maxAge: 120, path: "/" });
+    return back;
+  });
+}
+
+export async function revokeTestLinkAction(form: FormData) {
+  const p = await requirePerson();
+  const back = backTo(form);
+  await act(back, async () => {
+    await revokeTestLink(portalDb(), p.id, str(form, "link"));
+    return back;
   });
 }
 

@@ -33,7 +33,9 @@ const recognizerClass = (): (new () => Recognizer) | null => {
  * engine with every check on. Voice here uses the browser's own speech recognition and voice, not
  * Deepgram or the avatar: it tests what Max says and when, not the call app's audio.
  */
-export function AgentChat({ versionId, label, kind = "script", dealershipName }: { versionId: string; label: string; kind?: "script" | "price" | "kb"; dealershipName?: string }) {
+export function AgentChat({ versionId, label, kind = "script", dealershipName, link }: { versionId: string; label: string; kind?: "script" | "price" | "kb"; dealershipName?: string; link?: string }) {
+  // A client test link: the conversation only, no staff wording or check details
+  const client = Boolean(link);
   const [lines, setLines] = useState<Line[]>([]);
   const [state, setState] = useState<string | null>(null);
   const [tracked, setTracked] = useState<Tracked | null>(null);
@@ -83,7 +85,7 @@ export function AgentChat({ versionId, label, kind = "script", dealershipName }:
       const res = await fetch("/api/agent-test", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ version: versionId, kind, state: message === undefined ? undefined : stateRef.current, message }),
+        body: JSON.stringify({ version: versionId, kind, link, state: message === undefined ? undefined : stateRef.current, message }),
       });
       const r = await res.json();
       if (!res.ok) throw new Error(r?.error || "The test turn failed.");
@@ -133,7 +135,7 @@ export function AgentChat({ versionId, label, kind = "script", dealershipName }:
       const res = await fetch("/api/agent-test/avatar", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ version: versionId, kind }),
+        body: JSON.stringify({ version: versionId, kind, link }),
       });
       const s = await res.json();
       if (!res.ok) throw new Error(s?.error || "The avatar could not start.");
@@ -379,10 +381,12 @@ export function AgentChat({ versionId, label, kind = "script", dealershipName }:
     <div className="panel agent-chat">
       <div className="row" style={{ justifyContent: "space-between", alignItems: "flex-start" }}>
         <div style={{ display: "flex", flexDirection: "column" }}>
-          <strong style={{ fontSize: 16 }}>Test {label}</strong>
-          <span className="muted" style={{ fontSize: 13 }}>
-            {dealershipName ? `${dealershipName} · ` : ""}nothing reaches customers
-          </span>
+          <strong style={{ fontSize: 16 }}>{client ? "Your call with Max" : `Test ${label}`}</strong>
+          {!client && (
+            <span className="muted" style={{ fontSize: 13 }}>
+              {dealershipName ? `${dealershipName} · ` : ""}nothing reaches customers
+            </span>
+          )}
         </div>
         <div className="seg" role="group" aria-label="How you talk to Max">
           <button type="button" aria-pressed={!voice} onClick={() => setMode("type")}>
@@ -401,7 +405,7 @@ export function AgentChat({ versionId, label, kind = "script", dealershipName }:
           <video ref={videoElRef} autoPlay playsInline muted={false} aria-label="Max, the avatar" />
           {avatarState !== "on" && (
             <div className="avatar-cover">
-              {avatarState === "connecting" ? "Connecting the avatar…" : "The avatar appears when you start the call. Each video test uses HeyGen minutes."}
+              {avatarState === "connecting" ? "Connecting the avatar…" : client ? "Max appears when you start the call." : "The avatar appears when you start the call. Each video test uses HeyGen minutes."}
             </div>
           )}
           <div ref={audioBoxRef} hidden />
@@ -417,27 +421,29 @@ export function AgentChat({ versionId, label, kind = "script", dealershipName }:
           </button>
         )}
       </div>
+      {!client && (
       <p className="muted" style={{ marginTop: 6 }}>
         You play the customer: type, or turn voice on and talk. Max runs on this version{dealershipName ? ` of ${dealershipName}` : ""}
         {kind === "script" ? "" : ", with the dealership's live script"}{kind === "kb" ? " and price ladder" : kind === "price" ? " and knowledge base" : ""}, with every check on. Nothing reaches a customer, and testing approves
         nothing.
         {!voiceSupported && " Voice needs Chrome or Edge."}
       </p>
+      )}
       <div className="chat-log" ref={logRef} aria-live="polite">
         {!lines.length && phase === "idle" && <p className="muted">Start a test call to hear Max&apos;s greeting.</p>}
         {lines.map((l, i) => (
           <div key={i} className={`chat-line ${l.who}`}>
             <div className="chat-who">{l.who === "max" ? "Max" : "Customer (you)"}</div>
             <div className="chat-text">{l.text}</div>
-            {l.who === "max" && l.mode === "neutral" && (
+            {!client && l.who === "max" && l.mode === "neutral" && (
               <div className="chat-tag warn">A check refused the AI&apos;s reply twice, so Max said a neutral line{l.reason ? `: ${l.reason}` : ""}</div>
             )}
-            {l.who === "max" && l.mode === "native" && (
+            {!client && l.who === "max" && l.mode === "native" && (
               <div className="chat-tag chat-ok">
                 ✓ Passed every check{typeof l.ms === "number" ? ` · replied after ${(l.ms / 1000).toFixed(1)} s` : ""}
               </div>
             )}
-            {l.who === "max" && l.retried && <div className="chat-tag chat-retry">First try was stopped ({l.retried}). Fixed on the retry.</div>}
+            {!client && l.who === "max" && l.retried && <div className="chat-tag chat-retry">First try was stopped ({l.retried}). Fixed on the retry.</div>}
           </div>
         ))}
         {heard && (
@@ -457,7 +463,7 @@ export function AgentChat({ versionId, label, kind = "script", dealershipName }:
       </div>
       {status[phase] && <p className={`chat-status ${phase}`}>{status[phase]}</p>}
       {error && <p className="notice error">{error}</p>}
-      {tracked && (
+      {!client && tracked && (
         <dl className="tracked-grid" aria-label="What the app tracked">
           <div>
             <dt>Disclosure</dt>

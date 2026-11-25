@@ -12,7 +12,7 @@ import { pgliteDb } from "../../control-plane/src/pglite";
 import { loadLiveConfig } from "../../control-plane/src/live-config";
 import { seedDemo } from "../../control-plane/src/seed-demo";
 import { agentTestTurn } from "../src/server/agent-test";
-import { approve, createDraft, deleteDraft, diffAgainstLive, getVersion, listVersions, rollbackTo, runGate, saveAgentDraft, saveDraft, setStatus } from "../src/server/portal";
+import { approve, createDraft, createTestLink, deleteDraft, listTestLinks, revokeTestLink, useTestLink, diffAgainstLive, getVersion, listVersions, rollbackTo, runGate, saveAgentDraft, saveDraft, setStatus } from "../src/server/portal";
 
 const REPORT = resolve(import.meta.dirname, "../../../testing-skill/reports/sim-batch-2026-11-21T06-26-38-028Z.json");
 let db: Awaited<ReturnType<typeof pgliteDb>>;
@@ -150,5 +150,48 @@ describe("the Agent page, start to finish", () => {
     await expect(agentTestTurn(db, U.hyundaiMgr, price, { kind: "price" })).rejects.toThrow(/No such version/);
     await expect(agentTestTurn(db, U.mgr, price, { kind: "kb" })).rejects.toThrow(/No such version/);
     await deleteDraft(db, U.mgr, "price", price);
+  });
+
+});
+
+describe("client test links (no account)", () => {
+  let version: string;
+  it("only a manager of the dealership makes one, and only for its own versions", async () => {
+    version = (await listVersions(db, U.mgr, "demo-mazda", "script")).find((v) => v.status === "live")!.id;
+    await expect(createTestLink(db, U.viewer, "demo-mazda", "script", version, "x", 7)).rejects.toThrow(/only a manager/);
+    await expect(createTestLink(db, U.hyundaiMgr, "demo-mazda", "script", version, "x", 7)).rejects.toThrow(/only a manager/);
+    const hyundai = (await listVersions(db, U.hyundaiMgr, "demo-hyundai", "script"))[0].id;
+    await expect(createTestLink(db, U.mgr, "demo-mazda", "script", hyundai, "x", 7)).rejects.toThrow(/does not belong/);
+  });
+
+  it("works with no sign-in, runs the version as its maker, counts turns, and is never stored in plain text", async () => {
+    const token = await createTestLink(db, U.mgr, "demo-mazda", "script", version, "Client John", 7);
+    expect(token).toMatch(/^mxt_[0-9a-f]{64}$/);
+    const raw = (await db.query<{ n: number }>("select count(*)::int as n from test_link where token_hash = $1", [token])).rows[0].n;
+    expect(raw).toBe(0);
+    const open = await useTestLink(db, token, "open");
+    expect(open).toMatchObject({ createdBy: U.mgr, dealershipId: "demo-mazda", kind: "script", versionId: version });
+    const start = await agentTestTurn(db, (open as any).createdBy, (open as any).versionId, {});
+    expect(start.dealership).toBe("demo-mazda");
+    await useTestLink(db, token, "turn");
+    await useTestLink(db, token, "video");
+    const [l] = await listTestLinks(db, U.mgr, version);
+    expect(l).toMatchObject({ label: "Client John", turns_used: 1, video_used: 1 });
+    expect(await listTestLinks(db, U.viewer, version)).toEqual([]);
+  });
+
+  it("stops at its cap, when turned off, and when expired; a made-up token gets nothing", async () => {
+    const token = await createTestLink(db, U.mgr, "demo-mazda", "script", version, "", 7);
+    await db.query("update test_link set max_turns = 1 where token_hash = encode(sha256(convert_to($1, 'UTF8')), 'hex')", [token]);
+    expect(await useTestLink(db, token, "turn")).toHaveProperty("createdBy");
+    expect(await useTestLink(db, token, "turn")).toEqual({ refused: expect.stringMatching(/used all its test turns/) });
+    const [l] = await listTestLinks(db, U.mgr, version);
+    await revokeTestLink(db, U.mgr, l.id);
+    expect(await useTestLink(db, token, "open")).toEqual({ refused: expect.stringMatching(/expired or was turned off/) });
+    const old = await createTestLink(db, U.mgr, "demo-mazda", "script", version, "", 1);
+    await db.query("update test_link set expires_at = now() - interval '1 minute' where token_hash = encode(sha256(convert_to($1, 'UTF8')), 'hex')", [old]);
+    expect(await useTestLink(db, old, "open")).toHaveProperty("refused");
+    expect(await useTestLink(db, `mxt_${"0".repeat(64)}`, "open")).toHaveProperty("refused");
+    expect(await useTestLink(db, "not-a-token", "open")).toHaveProperty("refused");
   });
 });

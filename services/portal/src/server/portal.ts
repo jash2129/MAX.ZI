@@ -734,6 +734,71 @@ export async function revokeApiKey(db: Db, userId: string, keyId: string): Promi
   await run(db, userId, (tx) => tx.query("select app.revoke_api_key($1)", [keyId]));
 }
 
+// ---------------------------------------------------------------------------------------------------
+// Client test links: /t/<token> lets a client test one version with no account (migration 015)
+// ---------------------------------------------------------------------------------------------------
+
+export interface TestLinkSummary {
+  id: string;
+  kind: Kind;
+  version_id: string;
+  prefix: string;
+  label: string;
+  created_at: string;
+  expires_at: string;
+  revoked_at: string | null;
+  turns_used: number;
+  max_turns: number;
+  video_used: number;
+  max_video: number;
+  last_used_at: string | null;
+}
+
+/** A new link for one version; returns the token, shown once (only its hash is stored) */
+export async function createTestLink(db: Db, userId: string, dealershipId: string, kind: Kind, versionId: string, label: string, days: number): Promise<string> {
+  return run(db, userId, async (tx) =>
+    (await tx.query<{ t: string }>("select app.create_test_link($1, $2, $3, $4, $5) as t", [dealershipId, kind, versionId, label.trim().slice(0, 80), Math.round(days) || 7])).rows[0].t
+  );
+}
+
+/** The links for one version (managers only; row-level security), newest first */
+export async function listTestLinks(db: Db, userId: string, versionId: string): Promise<TestLinkSummary[]> {
+  return run(db, userId, async (tx) =>
+    (await tx.query<TestLinkSummary>(
+      `select id, kind, version_id, prefix, label, created_at, expires_at, revoked_at, turns_used, max_turns, video_used, max_video, last_used_at
+         from test_link where version_id = $1 order by created_at desc limit 20`,
+      [versionId]
+    )).rows
+  );
+}
+
+export async function revokeTestLink(db: Db, userId: string, linkId: string): Promise<void> {
+  await run(db, userId, (tx) => tx.query("select app.revoke_test_link($1)", [linkId]));
+}
+
+export interface TestLinkUse {
+  createdBy: string;
+  dealershipId: string;
+  dealershipName: string;
+  kind: Kind;
+  versionId: string;
+  expiresAt: string;
+}
+
+/** A link's version and maker, counting one turn or video session; null when invalid, expired or used up */
+export async function useTestLink(db: Db, token: string, what: "open" | "turn" | "video"): Promise<TestLinkUse | { refused: string }> {
+  if (!/^mxt_[0-9a-f]{64}$/.test(token)) return { refused: "This test link isn't complete. Ask for a new one." };
+  try {
+    const r = (await db.query<any>("select * from app.use_test_link($1, $2)", [token, what])).rows[0];
+    if (!r) return { refused: "This test link has expired or was turned off. Ask for a new one." };
+    return { createdBy: r.created_by, dealershipId: r.dealership_id, dealershipName: r.dealership_name, kind: r.kind, versionId: r.version_id, expiresAt: r.expires_at };
+  } catch (err) {
+    const msg = String((err as Error)?.message ?? err);
+    if (/used all its/.test(msg)) return { refused: `This test link ${msg.replace(/^.*this test link /, "")}. Ask for a new one.` };
+    return { refused: "This test link has expired or was turned off. Ask for a new one." };
+  }
+}
+
 /** Deletion on request: the call's transcript, review text and recording; its outcome row stays */
 export async function forgetCall(db: Db, userId: string, callId: string): Promise<void> {
   await run(db, userId, (tx) => tx.query("select app.forget_call($1)", [callId]));

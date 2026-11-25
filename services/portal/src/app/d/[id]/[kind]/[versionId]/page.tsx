@@ -10,6 +10,7 @@ import {
   statusAction,
 } from "@/app/actions";
 import { AgentChat } from "@/components/agent-chat";
+import { ShareLinks } from "@/components/share-links";
 import { DealershipNav, KIND_LABEL, Notices, Shell, Status } from "@/components/chrome";
 import { portalDb } from "@/server/db";
 import {
@@ -452,6 +453,15 @@ export default async function VersionPage({
             <p className="muted">
               Save the draft first: the test runs on what is saved.
             </p>
+          )}
+          {can.edit && (
+            <ShareLinks
+              personId={person.id}
+              dealershipId={id}
+              kind={kind}
+              versionId={versionId}
+              back={`/d/${id}/${kind}/${versionId}`}
+            />
           )}
         </div>
       </div>

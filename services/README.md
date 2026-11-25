@@ -18,7 +18,7 @@ browser ──(Daily room: mic in; avatar video, Max's audio, panel events out)�
 
 Set up 2026-11-23:
 
-- **Migrations:** 001-014 applied (010, the call page, and 011, recordings, on 2026-11-23; 012, free
+- **Migrations:** 001-015 applied (015, client test links, on 2026-11-25, after snapshot `pre-migration-015-2026-11-25`, kept until 2026-12-09); (010, the call page, and 011, recordings, on 2026-11-23; 012, free
   mode's prompt, and 013, Max's prompt for the prompt-native engine, on 2026-11-23; 014, the agent
   settings of the portal's Agent page, on 2026-11-24).
 - **Snapshots:** taken before 007-009, as branch `pre-migration-2026-11-23`, and before 010, as branch
